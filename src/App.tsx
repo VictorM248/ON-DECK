@@ -19,7 +19,7 @@ export default function App() {
     localStorage.setItem("role", role);
   }, [role]);
 
-  // Store name
+  // Store name section
   const [storeName, setStoreName] = useState<string>(
     () => localStorage.getItem("storeName") ?? "Company Name"
   );
@@ -27,7 +27,7 @@ export default function App() {
     localStorage.setItem("storeName", storeName);
   }, [storeName]);
 
-  // Region dropdown
+  // Region dropdown menu
   const [region, setRegion] = useState<string>(
     () => localStorage.getItem("region") ?? "North"
   );
@@ -56,7 +56,7 @@ export default function App() {
     return () => clearInterval(intervalId);
   }, []);
 
-  // Saved names
+  // Saved names "Locally stored"
   const [savedNames, setSavedNames] = useState<SavedName[]>(() => {
     const raw = JSON.parse(localStorage.getItem("savedNames") || "[]");
     if (!Array.isArray(raw)) return [];
@@ -92,7 +92,7 @@ export default function App() {
     ]);
   };
 
-  // NEW: remove saved name (Admin use only)
+  // NEW: remove saved names (Admin use only)
   const handleRemoveSavedName = (id: string) => {
     setSavedNames((prev) => prev.filter((n) => n.id !== id));
   };
@@ -149,7 +149,7 @@ export default function App() {
               Add guest to queue
             </h2>
 
-            {/* Admin view */}
+            {/* Admin view section */}
             {role === "Admin" ? (
               <>
                 <div className="space-y-3 mb-4">
@@ -226,7 +226,7 @@ export default function App() {
                 )}
               </>
             ) : (
-              /* Sales view */
+              /* Sales view section */
               <>
                 {savedNames.length > 0 ? (
                   <>
@@ -280,7 +280,7 @@ export default function App() {
 
       {/* HEADER */}
       <div className="sticky top-0 z-30 bg-gradient-to-b from-slate-900 to-slate-950 backdrop-blur border-b border-blue-900 px-6 py-0.5 relative">
-        {/* CENTER — Perfectly Centered */}
+        {/* Center is Centered */}
         <div className="absolute left-1/2 -translate-x-1/2 text-center">
           <h1 className="text-2xl font-bold text-slate-100">
             ON-DECK
