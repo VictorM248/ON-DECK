@@ -10,8 +10,8 @@ type Entry = {
   joinedAt?: number;
   serviceStart?: number;
   joinType?: JoinType;
-  managers?: string[]; // helpers / managers involved
-  teamLabel?: string; // team working the guest (e.g. "John Doe & Jane Doe")
+  managers?: string[];
+  teamLabel?: string;
 };
 
 type Manager = {
@@ -84,7 +84,7 @@ export default function Queue({
     }));
   });
 
-  // saved helpers/managers
+  // saved managers/helpers
   const [savedManagers, setSavedManagers] = useState<Manager[]>(() => {
     const raw = JSON.parse(localStorage.getItem("savedManagers") || "[]");
     if (!Array.isArray(raw)) return [];
@@ -94,17 +94,14 @@ export default function Queue({
     }));
   });
 
-  // tab for right side
+  // right-side tab (Admin only)
   const [activeTab, setActiveTab] = useState<"with" | "done">("with");
 
-  // Sales cannot sit on "done" tab
   useEffect(() => {
-    if (role !== "Admin" && activeTab === "done") {
-      setActiveTab("with");
-    }
+    if (role !== "Admin" && activeTab === "done") setActiveTab("with");
   }, [role, activeTab]);
 
-  // timer tick for durations
+  // timer tick
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -112,86 +109,91 @@ export default function Queue({
   }, []);
 
   // modals
-  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null); // queue -> active
-  const [doneActiveId, setDoneActiveId] = useState<string | null>(null); // active -> queue
-  const [completeEntryId, setCompleteEntryId] = useState<string | null>(null); // active -> completed
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null); // queue -> active (join type)
+  const [doneActiveId, setDoneActiveId] = useState<string | null>(null); // active -> queue (send back)
+  const [completeEntryId, setCompleteEntryId] = useState<string | null>(null); // done -> completed + requeue
 
-  // team modal (active card click)
+  // team modal
   const [teamEntryId, setTeamEntryId] = useState<string | null>(null);
   const [teamLabelInput, setTeamLabelInput] = useState("");
 
-  // where to send rep back in queue after completion
+  // manager selection shared
+  const [selectedManagerIds, setSelectedManagerIds] = useState<string[]>([]);
+  const [newManagerName, setNewManagerName] = useState("");
+
+  // where to requeue after "Done"
   const [returnPosition, setReturnPosition] = useState<"top" | "bottom">(
     "bottom"
   );
 
-  // shared helper selection state
-  const [selectedManagerIds, setSelectedManagerIds] = useState<string[]>([]);
-  const [newManagerName, setNewManagerName] = useState("");
+  // persist
+  useEffect(() => localStorage.setItem("queue", JSON.stringify(queue)), [queue]);
+  useEffect(() => localStorage.setItem("active", JSON.stringify(active)), [active]);
+  useEffect(
+    () => localStorage.setItem("completed", JSON.stringify(completed)),
+    [completed]
+  );
+  useEffect(
+    () => localStorage.setItem("savedManagers", JSON.stringify(savedManagers)),
+    [savedManagers]
+  );
 
-  // persist lists
-  useEffect(() => {
-    localStorage.setItem("queue", JSON.stringify(queue));
-  }, [queue]);
-
-  useEffect(() => {
-    localStorage.setItem("active", JSON.stringify(active));
-  }, [active]);
-
-  useEffect(() => {
-    localStorage.setItem("completed", JSON.stringify(completed));
-  }, [completed]);
-
-  useEffect(() => {
-    localStorage.setItem("savedManagers", JSON.stringify(savedManagers));
-  }, [savedManagers]);
+  const fullName = (e: Entry) => `${e.firstName} ${e.lastName}`.trim();
 
   const initials = (e: Entry) =>
     `${e.firstName?.[0] ?? ""}${e.lastName?.[0] ?? ""}`.toUpperCase();
 
-  // For overlapping avatar bubbles when a team is set
+  // Overlapping avatar bubbles when teamLabel exists
   const avatarInitialsList = (e: Entry): string[] => {
-    // If no team, just return this guest's initials
-    if (!e.teamLabel) {
-      return [
-        `${e.firstName?.[0] ?? ""}${e.lastName?.[0] ?? ""}`.toUpperCase(),
-      ];
-    }
+    if (!e.teamLabel) return [initials(e)];
 
-    // Example teamLabel: "John Doe & Jane Doe"
     const parts = e.teamLabel
       .split("&")
       .map((p) => p.trim())
       .filter(Boolean);
 
     const codes: string[] = [];
-
     for (let i = 0; i < Math.min(parts.length, 2); i++) {
       const words = parts[i].split(/\s+/).filter(Boolean);
-      if (words.length === 0) continue;
-
+      if (!words.length) continue;
       const first = words[0][0] ?? "";
       const last = words.length > 1 ? words[words.length - 1][0] ?? "" : "";
-      const code = (first + last).toUpperCase(); // "JD"
-
+      const code = (first + last).toUpperCase();
       if (code) codes.push(code);
     }
+    return codes.length ? codes.slice(0, 2) : [initials(e)];
+  };
 
-    if (codes.length === 0) {
-      return [
-        `${e.firstName?.[0] ?? ""}${e.lastName?.[0] ?? ""}`.toUpperCase(),
-      ];
+  // team badge info for queue list: "TEAM • <other>"
+  const parseTeamMembers = (teamLabel?: string) => {
+    if (!teamLabel) return [];
+    return teamLabel
+      .split("&")
+      .map((p) => p.trim())
+      .filter(Boolean);
+  };
+
+  const teamedWith = (rep: Entry): string | null => {
+    const repName = fullName(rep).toLowerCase();
+    if (!repName) return null;
+
+    for (const a of active) {
+      if (!a.teamLabel) continue;
+
+      const members = parseTeamMembers(a.teamLabel);
+      const lower = members.map((m) => m.toLowerCase());
+      if (!lower.includes(repName)) continue;
+
+      const other = members.find((m) => m.toLowerCase() !== repName);
+      return other ?? "Team";
     }
 
-    return codes.slice(0, 2); // max 2 bubbles
+    return null;
   };
 
   const formatJoined = (ts?: number) =>
     ts
-      ? new Date(ts).toLocaleTimeString([], {
-          hour: "numeric",
-          minute: "2-digit",
-        })
+      ? new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
       : "";
 
   const formatSince = (start?: number) => {
@@ -202,28 +204,23 @@ export default function Queue({
     return `${m}m ${s.toString().padStart(2, "0")}s`;
   };
 
-  //walk-in / appointment badge
   const joinBadge = (e: Entry) => {
     if (!e.joinType) return null;
     const isAppt = e.joinType === "appointment";
-
     return (
       <span className="ml-2 inline-flex items-center gap-2 rounded-full bg-slate-700 px-3 py-1 text-xs text-slate-100 shadow-sm">
         <span className="text-base">{isAppt ? "📅" : "🚶"}</span>
-        <span className="font-medium">
-          {isAppt ? "Appointment" : "Walk-in"}
-        </span>
+        <span className="font-medium">{isAppt ? "Appointment" : "Walk-in"}</span>
       </span>
     );
   };
 
-  // Add from main / Add Guest modal
+  // Add from App modal
   const addFromModal = useCallback(
     (firstName: string, lastName: string, note: string) => {
       const fn = firstName.trim();
       const ln = lastName.trim();
       const nt = note.trim();
-
       if (!fn) return;
 
       setQueue((q) => [
@@ -242,22 +239,18 @@ export default function Queue({
     [onAddSavedName]
   );
 
-  // expose add handler back to App
   useEffect(() => {
     registerAddHandler?.(addFromModal);
   }, [registerAddHandler, addFromModal]);
 
-  const removeFromQueue = (id: string) =>
-    setQueue((q) => q.filter((e) => e.id !== id));
+  const removeFromQueue = (id: string) => setQueue((q) => q.filter((e) => e.id !== id));
 
   const clearQueue = () => {
     if (window.confirm("Clear the entire queue?")) setQueue([]);
   };
 
-  // queue -> active type modal
-  const openJoinTypeModal = (entryId: string) => {
-    setSelectedEntryId(entryId);
-  };
+  // queue -> active join type modal
+  const openJoinTypeModal = (entryId: string) => setSelectedEntryId(entryId);
 
   const confirmMoveWithType = (type: JoinType) => {
     if (!selectedEntryId) return;
@@ -281,12 +274,12 @@ export default function Queue({
     setSelectedEntryId(null);
   };
 
-  // open "Done" modal (active -> queue, WITHOUT logging sale)
+  // open "Send back to queue" modal (active -> queue)
   const openDoneModal = (entryId: string) => {
     setDoneActiveId(entryId);
 
     const entry = active.find((e) => e.id === entryId);
-    if (entry && entry.managers && entry.managers.length > 0) {
+    if (entry?.managers?.length) {
       const ids = savedManagers
         .filter((m) => entry.managers!.includes(m.name))
         .map((m) => m.id);
@@ -297,12 +290,12 @@ export default function Queue({
     setNewManagerName("");
   };
 
-  // open manager log modal (active -> completed)
+  // open "Done" modal (log managers + requeue + completed)
   const openCompleteModal = (entryId: string) => {
     setCompleteEntryId(entryId);
     setSelectedManagerIds([]);
     setNewManagerName("");
-    setReturnPosition("bottom"); // default choice
+    setReturnPosition("bottom");
   };
 
   const closeCompleteModal = () => {
@@ -338,7 +331,7 @@ export default function Queue({
     closeTeamModal();
   };
 
-  // toggle helper selection (max 3)
+  // toggle manager selection (max 3)
   const toggleManagerSelection = (id: string) => {
     setSelectedManagerIds((prev) => {
       if (prev.includes(id)) return prev.filter((x) => x !== id);
@@ -347,7 +340,7 @@ export default function Queue({
     });
   };
 
-  // confirm visit complete -> Completed tab + requeue at top/bottom
+    // DONE: log managers, add to Completed, and requeue based on returnPosition + 2min rule
   const handleConfirmComplete = () => {
     if (!completeEntryId) return;
 
@@ -357,13 +350,12 @@ export default function Queue({
       return;
     }
 
-    // managers/helpers selected
+    // build managers list
     let managersList = savedManagers
       .filter((m) => selectedManagerIds.includes(m.id))
       .map((m) => m.name);
 
     const nm = newManagerName.trim();
-
     if (nm) {
       const existing = savedManagers.find(
         (m) => m.name.toLowerCase() === nm.toLowerCase()
@@ -380,18 +372,26 @@ export default function Queue({
 
     if (managersList.length > 3) managersList = managersList.slice(0, 3);
 
-    // entry saved to Completed tab with managers
+    // save completed entry
     const completedEntry: Entry = {
       ...entry,
       managers: managersList,
     };
 
-    // new, cleaned entry back into the queue (top or bottom)
+    // 2-minute rule for top
+    const canSendTop = entry.serviceStart
+      ? now - entry.serviceStart < 2 * 60 * 1000
+      : true;
+
+    const finalPosition: "top" | "bottom" =
+      returnPosition === "top" && canSendTop ? "top" : "bottom";
+
+    // requeue entry (new id + new join time; clear old note/team)
     const requeuedEntry: Entry = {
-      id: crypto.randomUUID(), // treat as a new turn in line
+      id: crypto.randomUUID(),
       firstName: entry.firstName,
       lastName: entry.lastName,
-      note: "", // or entry.note if you want to carry it forward
+      note: "",
       joinedAt: Date.now(),
       serviceStart: undefined,
       joinType: undefined,
@@ -401,19 +401,16 @@ export default function Queue({
 
     setActive((a) => a.filter((e) => e.id !== completeEntryId));
     setCompleted((c) => [...c, completedEntry]);
-    setQueue((q) =>
-      returnPosition === "top" ? [requeuedEntry, ...q] : [...q, requeuedEntry]
-    );
+    setQueue((q) => (finalPosition === "top" ? [requeuedEntry, ...q] : [...q, requeuedEntry]));
 
     closeCompleteModal();
   };
 
-  // REMOVE completed entry
   const removeCompletedEntry = (id: string) => {
     setCompleted((c) => c.filter((e) => e.id !== id));
   };
 
-  // active -> queue (uses helpers too) WITHOUT logging sale
+  // send active back to queue (no completed)
   const moveActiveBackToQueue = (position: "top" | "bottom") => {
     if (!doneActiveId) return;
 
@@ -452,9 +449,7 @@ export default function Queue({
     };
 
     setActive((a) => a.filter((e) => e.id !== doneActiveId));
-    setQueue((q) =>
-      position === "top" ? [cleaned, ...q] : [...q, cleaned]
-    );
+    setQueue((q) => (position === "top" ? [cleaned, ...q] : [...q, cleaned]));
 
     setDoneActiveId(null);
     setSelectedManagerIds([]);
@@ -473,7 +468,6 @@ export default function Queue({
             className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-
             <h2 className="text-lg font-semibold mb-2 text-slate-100">
               How is this guest being served?
             </h2>
@@ -515,7 +509,7 @@ export default function Queue({
         </div>
       )}
 
-      {/* MODAL: active -> queue (Done / helpers) WITHOUT logging sale */}
+      {/* MODAL: active -> queue (Send back to queue) */}
       {doneActiveId && (
         <div
           className="fixed inset-0 z-40 flex items-center justify-center bg-black/50"
@@ -529,7 +523,6 @@ export default function Queue({
             className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-
             <h2 className="text-lg font-semibold mb-2 text-slate-100">
               Move back to queue?
             </h2>
@@ -552,15 +545,13 @@ export default function Queue({
 
               return (
                 <div className="flex flex-col gap-4">
-                  {/* queue position */}
                   <div className="flex flex-col gap-3">
                     {canSendTop && (
                       <button
                         onClick={() => moveActiveBackToQueue("top")}
                         className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
                       >
-                        Send to <span className="font-semibold">top</span> of
-                        queue
+                        Send to <span className="font-semibold">top</span> of queue
                       </button>
                     )}
 
@@ -568,12 +559,10 @@ export default function Queue({
                       onClick={() => moveActiveBackToQueue("bottom")}
                       className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
                     >
-                      Send to <span className="font-semibold">bottom</span> of
-                      queue
+                      Send to <span className="font-semibold">bottom</span> of queue
                     </button>
                   </div>
 
-                  {/* helpers section */}
                   <div className="mt-2">
                     <p className="text-xs text-slate-400 mb-1">
                       Who helped you with this visit? (optional)
@@ -630,45 +619,42 @@ export default function Queue({
         </div>
       )}
 
-      {/* MODAL: visit complete / managers -> Completed + queue position */}
+      {/* MODAL: DONE (log managers + send to top/bottom + completed + requeue) */}
       {completeEntryId && (
-      <div
-        className="fixed inset-0 z-40 flex items-center justify-center bg-black/50"
-        onClick={closeCompleteModal}
-      >
         <div
-          className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
-          onClick={(e) => e.stopPropagation()}
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/50"
+          onClick={closeCompleteModal}
         >
-
+          <div
+            className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h2 className="text-lg font-semibold mb-2 text-slate-100">
-              Log visit & managers
+              Log managers for this visit
             </h2>
 
             {(() => {
               const e = active.find((a) => a.id === completeEntryId);
-              if (!e) {
-                return (
-                  <p className="text-sm text-slate-300 mb-4">
-                    Selected guest
-                  </p>
-                );
-              }
+              return (
+                <p className="text-sm text-slate-300 mb-4">
+                  {e ? `${e.firstName} ${e.lastName}` : "Selected guest"}
+                </p>
+              );
+            })()}
+
+            {(() => {
+              const e = active.find((a) => a.id === completeEntryId);
+              if (!e) return null;
 
               const canSendTop =
                 e.serviceStart ? now - e.serviceStart < 2 * 60 * 1000 : true;
 
               return (
                 <>
-                  <p className="text-sm text-slate-300 mb-4">
-                    {e.firstName} {e.lastName}
-                  </p>
-
                   {/* Queue position selection */}
                   <div className="mb-4">
                     <p className="text-xs text-slate-400 mb-1">
-                      After this visit is logged, where should they go in the
-                      queue?
+                      After this visit is logged, where should they go in the queue?
                     </p>
                     <div className="flex flex-col gap-2">
                       {canSendTop && (
@@ -681,8 +667,7 @@ export default function Queue({
                               : "bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800"
                           }`}
                         >
-                          Send to <span className="font-semibold">top</span> of
-                          queue
+                          Send to <span className="font-semibold">top</span> of queue
                         </button>
                       )}
 
@@ -695,54 +680,53 @@ export default function Queue({
                             : "bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800"
                         }`}
                       >
-                        Send to <span className="font-semibold">bottom</span> of
-                        queue
+                        Send to <span className="font-semibold">bottom</span> of queue
                       </button>
                     </div>
+                  </div>
+
+                  {/* Manager selection */}
+                  {savedManagers.length > 0 && (
+                    <div className="mb-3">
+                      <p className="text-xs text-slate-400">
+                        Tap up to 3 managers who helped:
+                      </p>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {savedManagers.map((m) => {
+                          const selected = selectedManagerIds.includes(m.id);
+                          return (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => toggleManagerSelection(m.id)}
+                              className={`rounded-full border px-3 py-1 text-xs ${
+                                selected
+                                  ? "bg-blue-600 border-blue-500 text-white"
+                                  : "bg-slate-800 border-slate-600 text-slate-200 hover:bg-slate-700"
+                              }`}
+                            >
+                              {m.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mb-4">
+                    <p className="text-xs text-slate-400 mb-1">
+                      Add another manager (optional):
+                    </p>
+                    <input
+                      value={newManagerName}
+                      onChange={(ev) => setNewManagerName(ev.target.value)}
+                      placeholder="Manager name"
+                      className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-blue-500"
+                    />
                   </div>
                 </>
               );
             })()}
-
-            {/* Managers selection */}
-            {savedManagers.length > 0 && (
-              <div className="mb-3">
-                <p className="text-xs text-slate-400">
-                  Who helped you with this visit? (optional, up to 3)
-                </p>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {savedManagers.map((m) => {
-                    const selected = selectedManagerIds.includes(m.id);
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => toggleManagerSelection(m.id)}
-                        className={`rounded-full border px-3 py-1 text-xs ${
-                          selected
-                            ? "bg-blue-600 border-blue-500 text-white"
-                            : "bg-slate-800 border-slate-600 text-slate-200 hover:bg-slate-700"
-                        }`}
-                      >
-                        {m.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            <div className="mb-4">
-              <p className="text-xs text-slate-400 mb-1">
-                Add another manager (optional):
-              </p>
-              <input
-                value={newManagerName}
-                onChange={(e) => setNewManagerName(e.target.value)}
-                placeholder="Manager name"
-                className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-blue-500"
-              />
-            </div>
 
             <div className="flex gap-2">
               <button
@@ -772,8 +756,6 @@ export default function Queue({
             className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-
-
             <h2 className="text-lg font-semibold mb-2 text-slate-100">
               Set team for this visit
             </h2>
@@ -781,11 +763,7 @@ export default function Queue({
             {(() => {
               const entry = active.find((a) => a.id === teamEntryId);
               if (!entry) {
-                return (
-                  <p className="text-sm text-slate-300 mb-4">
-                    Selected guest
-                  </p>
-                );
+                return <p className="text-sm text-slate-300 mb-4">Selected guest</p>;
               }
 
               const teammates = queue; // reps currently in queue
@@ -796,7 +774,6 @@ export default function Queue({
                     {entry.firstName} {entry.lastName}
                   </p>
 
-                  {/* Free-text team label */}
                   <div className="mb-4">
                     <p className="text-xs text-slate-400 mb-1">
                       Who is working this guest? (optional)
@@ -809,7 +786,6 @@ export default function Queue({
                     />
                   </div>
 
-                  {/* Quick-pick from current queue */}
                   {teammates.length > 0 && (
                     <div className="mb-4">
                       <p className="text-xs text-slate-400 mb-2">
@@ -875,55 +851,64 @@ export default function Queue({
               </div>
             </div>
 
-            {queue.map((e, i) => (
-              <div
-                key={e.id}
-                className="flex items-center justify-between border-t border-slate-800 px-4 py-3 cursor-pointer hover:bg-slate-800"
-                onClick={() => openJoinTypeModal(e.id)}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white text-xs font-semibold">
-                    {initials(e)}
-                  </div>
+            {queue.map((e, i) => {
+              const other = teamedWith(e);
 
-                  <div>
-                    <div className="font-medium text-slate-100">
-                      {i + 1}. {e.firstName} {e.lastName}
+              return (
+                <div
+                  key={e.id}
+                  className="flex items-center justify-between border-t border-slate-800 px-4 py-3 cursor-pointer hover:bg-slate-800"
+                  onClick={() => openJoinTypeModal(e.id)}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white text-xs font-semibold">
+                      {initials(e)}
                     </div>
 
-                    {e.note && (
-                      <div className="text-xs text-slate-300 italic">
-                        {e.note}
-                      </div>
-                    )}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <div className="font-medium text-slate-100">
+                          {i + 1}. {e.firstName} {e.lastName}
+                        </div>
 
-                    {e.joinedAt && (
-                      <div className="text-[11px] text-slate-400">
-                        Joined at {formatJoined(e.joinedAt)}
+                        {other && (
+                          <span className="inline-flex items-center rounded-full border border-blue-500/40 bg-blue-600/20 px-2 py-0.5 text-[11px] text-blue-200">
+                            TEAM • {other}
+                          </span>
+                        )}
                       </div>
-                    )}
+
+                      {e.note && (
+                        <div className="text-xs text-slate-300 italic">{e.note}</div>
+                      )}
+
+                      {e.joinedAt && (
+                        <div className="text-[11px] text-slate-400">
+                          Joined at {formatJoined(e.joinedAt)}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                {role === "Admin" && (
-                  <button
-                    onClick={(ev) => {
-                      ev.stopPropagation();
-                      removeFromQueue(e.id);
-                    }}
-                    className="text-xs text-red-400 hover:text-red-300"
-                  >
-                    remove
-                  </button>
-                )}
-              </div>
-            ))}
+                  {role === "Admin" && (
+                    <button
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        removeFromQueue(e.id);
+                      }}
+                      className="text-xs text-red-400 hover:text-red-300"
+                    >
+                      remove
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
         {/* RIGHT — ACTIVE + COMPLETED */}
         <div className="w-full lg:w-2/3 space-y-6">
-          {/* HEADER WITH TABS (ADMIN ONLY) */}
           <div className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 bg-slate-900 shadow-lg">
             {role === "Admin" ? (
               <div className="flex items-center justify-between">
@@ -968,7 +953,6 @@ export default function Queue({
             )}
           </div>
 
-          {/* LIST AREA */}
           {role === "Admin" && activeTab === "done"
             ? completed.map((e) => (
                 <div
@@ -976,7 +960,6 @@ export default function Queue({
                   className="rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-lg"
                 >
                   <div className="flex items-start gap-4 justify-between">
-                    {/* Initials (overlapping if team) */}
                     <div className="flex -space-x-2">
                       {avatarInitialsList(e).map((ini, idx) => (
                         <div
@@ -988,12 +971,9 @@ export default function Queue({
                       ))}
                     </div>
 
-                    {/* Info */}
                     <div className="flex-1">
                       <div className="text-2xl font-semibold text-slate-100">
-                        {e.teamLabel
-                          ? e.teamLabel
-                          : `${e.firstName} ${e.lastName}`}
+                        {e.teamLabel ? e.teamLabel : `${e.firstName} ${e.lastName}`}
                       </div>
 
                       <div className="flex items-center gap-2 mt-0.5">
@@ -1009,17 +989,14 @@ export default function Queue({
                         </div>
                       )}
 
-                      {e.managers && (
+                      {e.managers?.length ? (
                         <div className="text-xs text-slate-300 mt-1">
                           Managers:{" "}
-                          <span className="font-medium">
-                            {e.managers.join(", ")}
-                          </span>
+                          <span className="font-medium">{e.managers.join(", ")}</span>
                         </div>
-                      )}
+                      ) : null}
                     </div>
 
-                    {/* Remove button */}
                     <button
                       onClick={() => removeCompletedEntry(e.id)}
                       className="text-xs text-red-400 hover:text-red-300 ml-3"
@@ -1041,7 +1018,6 @@ export default function Queue({
                     onClick={() => openTeamModal(e.id)}
                   >
                     <div className="flex items-center gap-4">
-                      {/* Initials (overlapping if team) */}
                       <div className="flex -space-x-2">
                         {avatarInitialsList(e).map((ini, idx) => (
                           <div
@@ -1053,12 +1029,9 @@ export default function Queue({
                         ))}
                       </div>
 
-                      {/* Info */}
                       <div className="flex-1">
                         <div className="text-2xl font-semibold text-slate-100">
-                          {e.teamLabel
-                            ? e.teamLabel
-                            : `${e.firstName} ${e.lastName}`}
+                          {e.teamLabel ? e.teamLabel : `${e.firstName} ${e.lastName}`}
                         </div>
 
                         <div className="flex items-center gap-2 mt-0.5">
@@ -1085,14 +1058,12 @@ export default function Queue({
                         )}
                       </div>
 
-                      {/* Timer + actions */}
                       <div className="flex flex-col items-end gap-3">
                         <div className="text-lg tabular-nums text-slate-100">
                           {formatSince(e.serviceStart)}
                         </div>
 
                         <div className="flex flex-col gap-2">
-                          {/* DONE = log visit + managers (Completed tab + re-queue) */}
                           <button
                             onClick={(ev) => {
                               ev.stopPropagation();
@@ -1103,7 +1074,6 @@ export default function Queue({
                             Done
                           </button>
 
-                          {/* Separate action: send guest back to queue (top/bottom) without logging sale */}
                           <button
                             onClick={(ev) => {
                               ev.stopPropagation();
@@ -1117,7 +1087,6 @@ export default function Queue({
                       </div>
                     </div>
 
-                    {/* Progress bar / color change */}
                     <div className="mt-4 w-full h-2 bg-slate-800 rounded-full overflow-hidden">
                       <div
                         className="h-full transition-all"
