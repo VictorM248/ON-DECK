@@ -1,18 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
+import { useStoreFeed, type QueueEntry } from "../lib/useStoreFeed";
 
 type JoinType = "walk-in" | "appointment";
 
-type Entry = {
-  id: string;
-  firstName: string;
-  lastName: string;
-  note: string;
-  joinedAt?: number;
-  serviceStart?: number;
-  joinType?: JoinType;
-  managers?: string[];
-  teamLabel?: string;
-};
+// Keep Entry identical to QueueEntry to avoid UI changes
+type Entry = QueueEntry;
 
 type Manager = {
   id: string;
@@ -33,58 +25,23 @@ export default function Queue({
   onAddSavedName,
   registerAddHandler,
 }: QueueProps) {
-  // waiting queue
-  const [queue, setQueue] = useState<Entry[]>(() => {
-    const raw = JSON.parse(localStorage.getItem("queue") || "[]");
-    if (!Array.isArray(raw)) return [];
-    return raw.map((item: any): Entry => ({
-      id: item.id ?? crypto.randomUUID(),
-      firstName: item.firstName ?? "",
-      lastName: item.lastName ?? "",
-      note: item.note ?? "",
-      joinedAt: item.joinedAt,
-      serviceStart: item.serviceStart,
-      joinType: item.joinType as JoinType | undefined,
-      managers: Array.isArray(item.managers) ? item.managers : undefined,
-      teamLabel: item.teamLabel ?? undefined,
-    }));
-  });
+  // ✅ TODO: Replace these with your real selected store/region if you have a selector elsewhere
+  const storeId = "store-1";
+  const region = "North";
 
-  // active (with customers)
-  const [active, setActive] = useState<Entry[]>(() => {
-    const raw = JSON.parse(localStorage.getItem("active") || "[]");
-    if (!Array.isArray(raw)) return [];
-    return raw.map((item: any): Entry => ({
-      id: item.id ?? crypto.randomUUID(),
-      firstName: item.firstName ?? "",
-      lastName: item.lastName ?? "",
-      note: item.note ?? "",
-      joinedAt: item.joinedAt,
-      serviceStart: item.serviceStart,
-      joinType: item.joinType as JoinType | undefined,
-      managers: Array.isArray(item.managers) ? item.managers : undefined,
-      teamLabel: item.teamLabel ?? undefined,
-    }));
-  });
+  const { data, initIfMissing, updateFeed } = useStoreFeed(storeId, region);
 
-  // completed list (Admin tab)
-  const [completed, setCompleted] = useState<Entry[]>(() => {
-    const raw = JSON.parse(localStorage.getItem("completed") || "[]");
-    if (!Array.isArray(raw)) return [];
-    return raw.map((item: any): Entry => ({
-      id: item.id ?? crypto.randomUUID(),
-      firstName: item.firstName ?? "",
-      lastName: item.lastName ?? "",
-      note: item.note ?? "",
-      joinedAt: item.joinedAt,
-      serviceStart: item.serviceStart,
-      joinType: item.joinType as JoinType | undefined,
-      managers: Array.isArray(item.managers) ? item.managers : undefined,
-      teamLabel: item.teamLabel ?? undefined,
-    }));
-  });
+  const queue = (data.queue ?? []) as Entry[];
+  const active = (data.active ?? []) as Entry[];
+  const completed = (data.completed ?? []) as Entry[];
 
-  // saved managers/helpers
+  // Ensure doc exists (safe; merge: true)
+  useEffect(() => {
+    initIfMissing();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeId, region]);
+
+  // saved managers/helpers (still localStorage for now)
   const [savedManagers, setSavedManagers] = useState<Manager[]>(() => {
     const raw = JSON.parse(localStorage.getItem("savedManagers") || "[]");
     if (!Array.isArray(raw)) return [];
@@ -126,16 +83,22 @@ export default function Queue({
     "bottom"
   );
 
-  // persist
-  useEffect(() => localStorage.setItem("queue", JSON.stringify(queue)), [queue]);
-  useEffect(() => localStorage.setItem("active", JSON.stringify(active)), [active]);
-  useEffect(
-    () => localStorage.setItem("completed", JSON.stringify(completed)),
-    [completed]
-  );
+  // persist savedManagers only
   useEffect(
     () => localStorage.setItem("savedManagers", JSON.stringify(savedManagers)),
     [savedManagers]
+  );
+
+  // ---- Firestore write helper (always write all 3 arrays to keep state consistent) ----
+  const setLists = useCallback(
+    async (next: { queue: Entry[]; active: Entry[]; completed: Entry[] }) => {
+      await updateFeed({
+        queue: next.queue,
+        active: next.active,
+        completed: next.completed,
+      });
+    },
+    [updateFeed]
   );
 
   const fullName = (e: Entry) => `${e.firstName} ${e.lastName}`.trim();
@@ -193,7 +156,10 @@ export default function Queue({
 
   const formatJoined = (ts?: number) =>
     ts
-      ? new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+      ? new Date(ts).toLocaleTimeString([], {
+          hour: "numeric",
+          minute: "2-digit",
+        })
       : "";
 
   const formatSince = (start?: number) => {
@@ -215,16 +181,16 @@ export default function Queue({
     );
   };
 
-  // Add from App modal
+  // Add from App modal (Firestore write)
   const addFromModal = useCallback(
-    (firstName: string, lastName: string, note: string) => {
+    async (firstName: string, lastName: string, note: string) => {
       const fn = firstName.trim();
       const ln = lastName.trim();
       const nt = note.trim();
       if (!fn) return;
 
-      setQueue((q) => [
-        ...q,
+      const nextQueue: Entry[] = [
+        ...queue,
         {
           id: crypto.randomUUID(),
           firstName: fn,
@@ -232,27 +198,36 @@ export default function Queue({
           note: nt,
           joinedAt: Date.now(),
         },
-      ]);
+      ];
 
+      await setLists({ queue: nextQueue, active, completed });
       onAddSavedName?.(fn, ln);
     },
-    [onAddSavedName]
+    [queue, active, completed, setLists, onAddSavedName]
   );
 
   useEffect(() => {
     registerAddHandler?.(addFromModal);
   }, [registerAddHandler, addFromModal]);
 
-  const removeFromQueue = (id: string) => setQueue((q) => q.filter((e) => e.id !== id));
+  const removeFromQueue = async (id: string) => {
+    await setLists({
+      queue: queue.filter((e) => e.id !== id),
+      active,
+      completed,
+    });
+  };
 
-  const clearQueue = () => {
-    if (window.confirm("Clear the entire queue?")) setQueue([]);
+  const clearQueue = async () => {
+    if (window.confirm("Clear the entire queue?")) {
+      await setLists({ queue: [], active, completed });
+    }
   };
 
   // queue -> active join type modal
   const openJoinTypeModal = (entryId: string) => setSelectedEntryId(entryId);
 
-  const confirmMoveWithType = (type: JoinType) => {
+  const confirmMoveWithType = async (type: JoinType) => {
     if (!selectedEntryId) return;
 
     const entry = queue.find((e) => e.id === selectedEntryId);
@@ -261,16 +236,17 @@ export default function Queue({
       return;
     }
 
-    setQueue((q) => q.filter((e) => e.id !== selectedEntryId));
-    setActive((a) => [
-      ...a,
+    const nextQueue = queue.filter((e) => e.id !== selectedEntryId);
+    const nextActive = [
+      ...active,
       {
         ...entry,
         joinType: type,
         serviceStart: Date.now(),
       },
-    ]);
+    ];
 
+    await setLists({ queue: nextQueue, active: nextActive, completed });
     setSelectedEntryId(null);
   };
 
@@ -305,7 +281,7 @@ export default function Queue({
     setReturnPosition("bottom");
   };
 
-  // team modal open/close + save
+  // team modal open/close + save (Firestore write)
   const openTeamModal = (entryId: string) => {
     setTeamEntryId(entryId);
     const entry = active.find((e) => e.id === entryId);
@@ -317,17 +293,16 @@ export default function Queue({
     setTeamLabelInput("");
   };
 
-  const saveTeamLabel = () => {
+  const saveTeamLabel = async () => {
     if (!teamEntryId) return;
 
-    setActive((a) =>
-      a.map((e) =>
-        e.id === teamEntryId
-          ? { ...e, teamLabel: teamLabelInput.trim() || undefined }
-          : e
-      )
+    const nextActive = active.map((e) =>
+      e.id === teamEntryId
+        ? { ...e, teamLabel: teamLabelInput.trim() || undefined }
+        : e
     );
 
+    await setLists({ queue, active: nextActive, completed });
     closeTeamModal();
   };
 
@@ -340,8 +315,8 @@ export default function Queue({
     });
   };
 
-    // DONE: log managers, add to Completed, and requeue based on returnPosition + 2min rule
-  const handleConfirmComplete = () => {
+  // DONE: log managers, add to Completed, and requeue based on returnPosition + 2min rule (Firestore write)
+  const handleConfirmComplete = async () => {
     if (!completeEntryId) return;
 
     const entry = active.find((e) => e.id === completeEntryId);
@@ -399,19 +374,27 @@ export default function Queue({
       teamLabel: undefined,
     };
 
-    setActive((a) => a.filter((e) => e.id !== completeEntryId));
-    setCompleted((c) => [...c, completedEntry]);
-    setQueue((q) => (finalPosition === "top" ? [requeuedEntry, ...q] : [...q, requeuedEntry]));
+    const nextActive = active.filter((e) => e.id !== completeEntryId);
+    const nextCompleted = [...completed, completedEntry];
+    const nextQueue =
+      finalPosition === "top"
+        ? [requeuedEntry, ...queue]
+        : [...queue, requeuedEntry];
 
+    await setLists({ queue: nextQueue, active: nextActive, completed: nextCompleted });
     closeCompleteModal();
   };
 
-  const removeCompletedEntry = (id: string) => {
-    setCompleted((c) => c.filter((e) => e.id !== id));
+  const removeCompletedEntry = async (id: string) => {
+    await setLists({
+      queue,
+      active,
+      completed: completed.filter((e) => e.id !== id),
+    });
   };
 
-  // send active back to queue (no completed)
-  const moveActiveBackToQueue = (position: "top" | "bottom") => {
+  // send active back to queue (no completed) (Firestore write)
+  const moveActiveBackToQueue = async (position: "top" | "bottom") => {
     if (!doneActiveId) return;
 
     const entry = active.find((e) => e.id === doneActiveId);
@@ -448,8 +431,11 @@ export default function Queue({
       managers: helpers.length > 0 ? helpers : entry.managers,
     };
 
-    setActive((a) => a.filter((e) => e.id !== doneActiveId));
-    setQueue((q) => (position === "top" ? [cleaned, ...q] : [...q, cleaned]));
+    const nextActive = active.filter((e) => e.id !== doneActiveId);
+    const nextQueue =
+      position === "top" ? [cleaned, ...queue] : [...queue, cleaned];
+
+    await setLists({ queue: nextQueue, active: nextActive, completed });
 
     setDoneActiveId(null);
     setSelectedManagerIds([]);
@@ -551,7 +537,8 @@ export default function Queue({
                         onClick={() => moveActiveBackToQueue("top")}
                         className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
                       >
-                        Send to <span className="font-semibold">top</span> of queue
+                        Send to <span className="font-semibold">top</span> of
+                        queue
                       </button>
                     )}
 
@@ -559,7 +546,8 @@ export default function Queue({
                       onClick={() => moveActiveBackToQueue("bottom")}
                       className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
                     >
-                      Send to <span className="font-semibold">bottom</span> of queue
+                      Send to <span className="font-semibold">bottom</span> of
+                      queue
                     </button>
                   </div>
 
@@ -654,7 +642,8 @@ export default function Queue({
                   {/* Queue position selection */}
                   <div className="mb-4">
                     <p className="text-xs text-slate-400 mb-1">
-                      After this visit is logged, where should they go in the queue?
+                      After this visit is logged, where should they go in the
+                      queue?
                     </p>
                     <div className="flex flex-col gap-2">
                       {canSendTop && (
@@ -667,7 +656,8 @@ export default function Queue({
                               : "bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800"
                           }`}
                         >
-                          Send to <span className="font-semibold">top</span> of queue
+                          Send to <span className="font-semibold">top</span> of
+                          queue
                         </button>
                       )}
 
@@ -680,7 +670,8 @@ export default function Queue({
                             : "bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800"
                         }`}
                       >
-                        Send to <span className="font-semibold">bottom</span> of queue
+                        Send to{" "}
+                        <span className="font-semibold">bottom</span> of queue
                       </button>
                     </div>
                   </div>
@@ -763,7 +754,9 @@ export default function Queue({
             {(() => {
               const entry = active.find((a) => a.id === teamEntryId);
               if (!entry) {
-                return <p className="text-sm text-slate-300 mb-4">Selected guest</p>;
+                return (
+                  <p className="text-sm text-slate-300 mb-4">Selected guest</p>
+                );
               }
 
               const teammates = queue; // reps currently in queue
@@ -879,7 +872,9 @@ export default function Queue({
                       </div>
 
                       {e.note && (
-                        <div className="text-xs text-slate-300 italic">{e.note}</div>
+                        <div className="text-xs text-slate-300 italic">
+                          {e.note}
+                        </div>
                       )}
 
                       {e.joinedAt && (
@@ -894,7 +889,7 @@ export default function Queue({
                     <button
                       onClick={(ev) => {
                         ev.stopPropagation();
-                        removeFromQueue(e.id);
+                        void removeFromQueue(e.id);
                       }}
                       className="text-xs text-red-400 hover:text-red-300"
                     >
@@ -998,7 +993,7 @@ export default function Queue({
                     </div>
 
                     <button
-                      onClick={() => removeCompletedEntry(e.id)}
+                      onClick={() => void removeCompletedEntry(e.id)}
                       className="text-xs text-red-400 hover:text-red-300 ml-3"
                     >
                       Remove

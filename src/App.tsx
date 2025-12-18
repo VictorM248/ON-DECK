@@ -1,3 +1,5 @@
+import { AuthGate } from "./components/AuthGate";
+import { useStoreFeed } from "./lib/useStoreFeed";
 import { useState, useEffect, useRef } from "react";
 import Toggle from "./components/Toggle";
 import Queue from "./components/Queue";
@@ -35,8 +37,19 @@ export default function App() {
     localStorage.setItem("region", region);
   }, [region]);
 
-  // Clock
-  const [currentTime, setCurrentTime] = useState<string>("");
+  // Region feed
+  const storeId = "store-1";
+  const { initIfMissing } = useStoreFeed(storeId, region);
+
+  //effect for Region feed
+    useEffect(() => {
+    initIfMissing();
+  }, [region]);
+
+
+
+    // Clock
+    const [currentTime, setCurrentTime] = useState<string>("");
 
   useEffect(() => {
     const updateTime = () => {
@@ -134,7 +147,8 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-700 text-slate-100">
+    <AuthGate>
+    <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-700 text-slate-100"> 
       {/* ADD GUEST MODAL */}
       {showAddModal && (
         <div
@@ -363,5 +377,6 @@ export default function App() {
         />
       </div>
     </div>
+    </AuthGate>
   );
 }
