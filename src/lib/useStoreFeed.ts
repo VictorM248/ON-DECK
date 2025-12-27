@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
+import { db } from "../firebase";
 import {
   doc,
   onSnapshot,
   setDoc,
   updateDoc,
+  getDoc,
 } from "firebase/firestore";
-import { db } from "./firebase";
+
 
 export type QueueEntry = {
   id: string;
@@ -50,18 +52,22 @@ export function useStoreFeed(storeId: string, region: string) {
   }, [storeId, region]);
 
   const initIfMissing = async () => {
-    const ref = doc(db, "stores", storeId, "regions", region);
-    await setDoc(
-      ref,
-      { queue: [], active: [], completed: [] },
-      { merge: true }
-    );
-  };
+  const ref = doc(db, "stores", storeId, "regions", region);
+  const snap = await getDoc(ref);
 
-  const updateFeed = async (partial: Partial<StoreFeed>) => {
-    const ref = doc(db, "stores", storeId, "regions", region);
-    await updateDoc(ref, partial);
-  };
+  if (!snap.exists()) {
+    await setDoc(ref, {
+      queue: [],
+      active: [],
+      completed: [],
+    });
+  }
+};
+
+const updateFeed = async (partial: Partial<StoreFeed>) => {
+  const ref = doc(db, "stores", storeId, "regions", region);
+  await updateDoc(ref, partial);
+};
 
   return {
     data,

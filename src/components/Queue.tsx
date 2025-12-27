@@ -1,18 +1,22 @@
 import { useEffect, useState, useCallback } from "react";
 import { useStoreFeed, type QueueEntry } from "../lib/useStoreFeed";
+import { useSavedManagersFirestore } from "../lib/useSavedManagersFirestore";
 
 type JoinType = "walk-in" | "appointment";
 
 // Keep Entry identical to QueueEntry to avoid UI changes
 type Entry = QueueEntry;
 
-type Manager = {
-  id: string;
-  name: string;
-};
+//This is commented out because I have no idea if it will break if I remove it.
+//type Manager = {
+//  id: string;
+//  name: string;
+//};
 
 type QueueProps = {
   role: "Sales" | "Admin";
+  storeId: string;
+  region: string;
   onAddSavedName?: (firstName: string, lastName: string) => void;
   registerAddHandler?: (
     fn: (firstName: string, lastName: string, note: string) => void
@@ -20,16 +24,29 @@ type QueueProps = {
   onOpenAddModal?: () => void;
 };
 
+
 export default function Queue({
   role,
+  storeId,
+  region,
   onAddSavedName,
   registerAddHandler,
 }: QueueProps) {
   // ✅ TODO: Replace these with your real selected store/region if you have a selector elsewhere
-  const storeId = "store-1";
-  const region = "North";
-
   const { data, initIfMissing, updateFeed } = useStoreFeed(storeId, region);
+  const {
+  savedManagers,
+  addManager,
+  initIfMissing: initSavedManagers,
+} = useSavedManagersFirestore(storeId);
+console.log("savedManagers", savedManagers);
+
+
+useEffect(() => {
+  initSavedManagers();
+}, [initSavedManagers]);
+
+
 
   const queue = (data.queue ?? []) as Entry[];
   const active = (data.active ?? []) as Entry[];
@@ -41,15 +58,6 @@ export default function Queue({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId, region]);
 
-  // saved managers/helpers (still localStorage for now)
-  const [savedManagers, setSavedManagers] = useState<Manager[]>(() => {
-    const raw = JSON.parse(localStorage.getItem("savedManagers") || "[]");
-    if (!Array.isArray(raw)) return [];
-    return raw.map((m: any) => ({
-      id: m.id ?? crypto.randomUUID(),
-      name: m.name ?? "",
-    }));
-  });
 
   // right-side tab (Admin only)
   const [activeTab, setActiveTab] = useState<"with" | "done">("with");
@@ -65,6 +73,16 @@ export default function Queue({
     return () => clearInterval(id);
   }, []);
 
+  //Let's see if this goes here
+  const handleAdminAddManager = async () => {
+  const nm = adminManagerInput.trim();
+  if (!nm) return;
+
+  await addManager(nm);
+  setAdminManagerInput("");
+};
+
+
   // modals
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null); // queue -> active (join type)
   const [doneActiveId, setDoneActiveId] = useState<string | null>(null); // active -> queue (send back)
@@ -77,6 +95,8 @@ export default function Queue({
   // manager selection shared
   const [selectedManagerIds, setSelectedManagerIds] = useState<string[]>([]);
   const [newManagerName, setNewManagerName] = useState("");
+  const [adminManagerInput, setAdminManagerInput] = useState("");
+
 
   // where to requeue after "Done"
   const [returnPosition, setReturnPosition] = useState<"top" | "bottom">(
@@ -90,16 +110,28 @@ export default function Queue({
   );
 
   // ---- Firestore write helper (always write all 3 arrays to keep state consistent) ----
+  const stripUndefined = <T,>(obj: T): T =>
+  JSON.parse(JSON.stringify(obj)) as T;
+
   const setLists = useCallback(
     async (next: { queue: Entry[]; active: Entry[]; completed: Entry[] }) => {
-      await updateFeed({
+      const cleaned = stripUndefined({
         queue: next.queue,
         active: next.active,
         completed: next.completed,
       });
+
+      try {
+        await updateFeed(cleaned);
+      } catch (err) {
+        console.error("Firestore update failed:", err);
+        alert("Save failed. Check console for details.");
+        throw err;
+      }
     },
     [updateFeed]
   );
+
 
   const fullName = (e: Entry) => `${e.firstName} ${e.lastName}`.trim();
 
@@ -325,27 +357,33 @@ export default function Queue({
       return;
     }
 
-    // build managers list
-    let managersList = savedManagers
-      .filter((m) => selectedManagerIds.includes(m.id))
-      .map((m) => m.name);
+    // Build selected IDs first (so typed name gets an ID and can be "selected")
+let selectedIds = [...selectedManagerIds];
 
-    const nm = newManagerName.trim();
-    if (nm) {
-      const existing = savedManagers.find(
-        (m) => m.name.toLowerCase() === nm.toLowerCase()
-      );
+const nm = newManagerName.trim();
+let typed = null as { id: string; name: string } | null;
 
-      if (!existing) {
-        const newMgr: Manager = { id: crypto.randomUUID(), name: nm };
-        setSavedManagers((prev) => [...prev, newMgr]);
-        managersList.push(newMgr.name);
-      } else if (!managersList.includes(existing.name)) {
-        managersList.push(existing.name);
-      }
-    }
+if (nm) {
+  if (role === "Admin") {
+    typed = await addManager(nm); // Admin can persist
+  }
+  if (typed && !selectedIds.includes(typed.id)) selectedIds.push(typed.id);
+}
 
-    if (managersList.length > 3) managersList = managersList.slice(0, 3);
+// max 3
+if (selectedIds.length > 3) selectedIds = selectedIds.slice(0, 3);
+
+// Build id->name map (include typed even before snapshot refresh)
+const idToName = new Map<string, string>();
+for (const m of savedManagers) idToName.set(m.id, m.name);
+if (typed) idToName.set(typed.id, typed.name);
+
+const managersList = selectedIds
+  .map((id) => idToName.get(id))
+  .filter((x): x is string => Boolean(x));
+
+setSelectedManagerIds(selectedIds);
+
 
     // save completed entry
     const completedEntry: Entry = {
@@ -403,27 +441,30 @@ export default function Queue({
       return;
     }
 
-    // helpers list from selection + optional new name
-    let helpers = savedManagers
-      .filter((m) => selectedManagerIds.includes(m.id))
-      .map((m) => m.name);
+    let selectedIds = [...selectedManagerIds];
 
-    const nm = newManagerName.trim();
-    if (nm) {
-      const existing = savedManagers.find(
-        (m) => m.name.toLowerCase() === nm.toLowerCase()
-      );
+const nm = newManagerName.trim();
+let typed = null as { id: string; name: string } | null;
 
-      if (!existing) {
-        const newHelper: Manager = { id: crypto.randomUUID(), name: nm };
-        setSavedManagers((prev) => [...prev, newHelper]);
-        helpers.push(newHelper.name);
-      } else if (!helpers.includes(existing.name)) {
-        helpers.push(existing.name);
-      }
-    }
+if (nm) {
+  if (role === "Admin") {
+    typed = await addManager(nm);
+  }
+  if (typed && !selectedIds.includes(typed.id)) selectedIds.push(typed.id);
+}
 
-    if (helpers.length > 3) helpers = helpers.slice(0, 3);
+if (selectedIds.length > 3) selectedIds = selectedIds.slice(0, 3);
+
+const idToName = new Map<string, string>();
+for (const m of savedManagers) idToName.set(m.id, m.name);
+if (typed) idToName.set(typed.id, typed.name);
+
+const helpers = selectedIds
+  .map((id) => idToName.get(id))
+  .filter((x): x is string => Boolean(x));
+
+setSelectedManagerIds(selectedIds);
+
 
     const cleaned: Entry = {
       ...entry,
@@ -585,8 +626,9 @@ export default function Queue({
                     <input
                       value={newManagerName}
                       onChange={(e) => setNewManagerName(e.target.value)}
-                      placeholder="Add another helper (name)"
-                      className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-blue-500"
+                      disabled={role !== "Admin"}
+                      placeholder={role === "Admin" ? "Manager name" : "Admin only"}
+                      className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
                 </div>
@@ -710,10 +752,12 @@ export default function Queue({
                     </p>
                     <input
                       value={newManagerName}
-                      onChange={(ev) => setNewManagerName(ev.target.value)}
-                      placeholder="Manager name"
-                      className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-blue-500"
+                      onChange={(e) => setNewManagerName(e.target.value)}
+                      disabled={role !== "Admin"}
+                      placeholder={role === "Admin" ? "Manager name" : "Admin only"}
+                      className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
+
                   </div>
                 </>
               );
@@ -947,6 +991,32 @@ export default function Queue({
               </div>
             )}
           </div>
+
+          {role === "Admin" && (
+  <div className="rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-lg">
+    <p className="text-sm font-semibold text-slate-200 mb-2">
+      Add Manager
+    </p>
+
+    <div className="flex gap-2">
+      <input
+        value={adminManagerInput}
+        onChange={(e) => setAdminManagerInput(e.target.value)}
+        placeholder="Manager name"
+        className="flex-1 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
+      />
+
+      <button
+        type="button"
+        onClick={handleAdminAddManager}
+        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
+      >
+        Add
+      </button>
+    </div>
+  </div>
+)}
+
 
           {role === "Admin" && activeTab === "done"
             ? completed.map((e) => (

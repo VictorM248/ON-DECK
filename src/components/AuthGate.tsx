@@ -1,16 +1,26 @@
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
 import type { User } from "firebase/auth";
-import { auth, googleProvider } from "../lib/firebase";
-
+import { auth, googleProvider, db } from "../lib/firebase";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, (u) => {
+    return onAuthStateChanged(auth, async (u) => {
       setUser(u);
+
+      if (u) {
+        const userRef = doc(db, "users", u.uid);
+        const snap = await getDoc(userRef);
+
+        if (!snap.exists()) {
+          await setDoc(userRef, { role: "sales" }, { merge: true });
+        }
+      }
+
       setLoading(false);
     });
   }, []);

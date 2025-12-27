@@ -1,3 +1,4 @@
+import { useSavedNamesFirestore } from "./lib/useSavedNamesFirestore";
 import { AuthGate } from "./components/AuthGate";
 import { useStoreFeed } from "./lib/useStoreFeed";
 import { useState, useEffect, useRef } from "react";
@@ -46,6 +47,14 @@ export default function App() {
     initIfMissing();
   }, [region]);
 
+  // Device home region (locked for Sales)
+  const homeRegion = localStorage.getItem("homeRegion") ?? "North";
+
+  useEffect(() => {
+    if (role === "Sales" && region !== homeRegion) {
+      setRegion(homeRegion);
+    }
+  }, [role, region, homeRegion]);
 
 
     // Clock
@@ -69,46 +78,29 @@ export default function App() {
     return () => clearInterval(intervalId);
   }, []);
 
-  // Saved names "Locally stored"
-  const [savedNames, setSavedNames] = useState<SavedName[]>(() => {
-    const raw = JSON.parse(localStorage.getItem("savedNames") || "[]");
-    if (!Array.isArray(raw)) return [];
-    return raw.map((n: any) => ({
-      id: n.id ?? crypto.randomUUID(),
-      firstName: n.firstName ?? "",
-      lastName: n.lastName ?? "",
-    }));
-  });
+  const { savedNames, addSavedName, removeSavedName, initIfMissing: initSavedNames } =
+  useSavedNamesFirestore(storeId);
+  useEffect(() => {
+    initSavedNames();
+  }, [initSavedNames]);
 
   useEffect(() => {
-    localStorage.setItem("savedNames", JSON.stringify(savedNames));
-  }, [savedNames]);
+  // "One-time" <--(Probably not) migrate localStorage -> Firestore (only if Firestore is empty)
+  if (savedNames.length > 0) return;
 
-  const handleAddSavedName = (firstName: string, lastName: string) => {
-    const fn = firstName.trim();
-    const ln = lastName.trim();
-    if (!fn) return;
+  const raw = JSON.parse(localStorage.getItem("savedNames") || "[]");
+  if (!Array.isArray(raw) || raw.length === 0) return;
 
-    const key = `${fn.toLowerCase()}|${ln.toLowerCase()}`;
-    if (
-      savedNames.some(
-        (n) =>
-          `${n.firstName.toLowerCase()}|${n.lastName.toLowerCase()}` === key
-      )
-    ) {
-      return;
-    }
+  raw.forEach((n: any) => {
+    const fn = (n.firstName ?? "").trim();
+    const ln = (n.lastName ?? "").trim();
+    if (fn) addSavedName(fn, ln);
+  });
 
-    setSavedNames((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), firstName: fn, lastName: ln },
-    ]);
-  };
+  // optional: prevent re-migrating later.. Mayyyybbeeee
+  localStorage.removeItem("savedNames");
+}, [savedNames.length, addSavedName]);
 
-  // NEW: remove saved names (Admin use only)
-  const handleRemoveSavedName = (id: string) => {
-    setSavedNames((prev) => prev.filter((n) => n.id !== id));
-  };
 
   // Queue add handler ref
   const queueAddRef = useRef<
@@ -120,6 +112,7 @@ export default function App() {
   const [modalFirst, setModalFirst] = useState("");
   const [modalLast, setModalLast] = useState("");
   const [modalNote, setModalNote] = useState("");
+  const [addChooserOpen, setAddChooserOpen] = useState(false);
 
   const openAddModal = () => setShowAddModal(true);
 
@@ -149,6 +142,57 @@ export default function App() {
   return (
     <AuthGate>
     <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-700 text-slate-100"> 
+
+{/* ADD CHOOSER MODAL (Admin only) */}
+{addChooserOpen && role === "Admin" && (
+  <div
+    className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+    onClick={() => setAddChooserOpen(false)}
+  >
+    <div
+      className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <h2 className="text-lg font-semibold mb-4 text-slate-100">
+        What would you like to add?
+      </h2>
+
+      <div className="flex flex-col gap-3">
+        <button
+          type="button"
+          onClick={() => {
+            setAddChooserOpen(false);
+            openAddModal();
+          }}
+          className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
+        >
+          ➕ Add guest to queue
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setAddChooserOpen(false);
+            // next step: open Add Manager modal
+            alert("Next step: Add Manager modal");
+          }}
+          className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
+        >
+          👤 Add manager
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setAddChooserOpen(false)}
+        className="mt-4 w-full rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+      >
+        Cancel
+      </button>
+    </div>
+  </div>
+)}
+
       {/* ADD GUEST MODAL */}
       {showAddModal && (
         <div
@@ -213,28 +257,39 @@ export default function App() {
 
                     <div className="flex flex-col gap-2 max-h-40 overflow-y-auto">
                       {savedNames.map((n) => (
-                        <div
-                          key={n.id}
-                          className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm flex items-center justify-between"
+                      <div
+                        key={n.id}
+                        className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm flex items-center justify-between"
+                      >
+                        {/* Clickable area = Add to queue */}
+                        <button
+                          type="button"
+                          onClick={() => handleQuickAddSaved(n)}
+                          className="flex items-center gap-3 text-left hover:opacity-90"
+                          title="Add to queue"
                         >
-                          <div className="flex items-center gap-3">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white text-xs font-semibold">
-                              {(n.firstName[0] + (n.lastName?.[0] ?? "")).toUpperCase()}
-                            </div>
-
-                            <span className="font-medium text-slate-100">
-                              {n.firstName} {n.lastName}
-                            </span>
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white text-xs font-semibold">
+                            {(n.firstName[0] + (n.lastName?.[0] ?? "")).toUpperCase()}
                           </div>
 
-                          <button
-                            onClick={() => handleRemoveSavedName(n.id)}
-                            className="text-[11px] text-red-400 hover:text-red-300"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
+                          <span className="font-medium text-slate-100">
+                            {n.firstName} {n.lastName}
+                          </span>
+
+                          <span className="ml-2 text-[11px] text-slate-400">Add to queue</span>
+                        </button>
+
+                        {/* Remove saved name */}
+                        <button
+                          type="button"
+                          onClick={() => removeSavedName(n.id)}
+                          className="text-[11px] text-red-400 hover:text-red-300"
+                          title="Remove saved name"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
                     </div>
                   </div>
                 )}
@@ -329,12 +384,11 @@ export default function App() {
 
             <div className="w-full flex justify-center">
             <button
-              onClick={openAddModal}
+              onClick={() => (role === "Admin" ? setAddChooserOpen(true) : openAddModal())}
               className="h-16 w-16 flex items-center justify-center rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-500 transition -translate-y-2"
             >
               <span className="text-7xl font-light leading-none -mt-3">+</span>
             </button>
-
 
           </div>
         </div>
@@ -369,12 +423,15 @@ export default function App() {
       <div className="p-6 pt-3">
         <Queue
           role={role}
-          onAddSavedName={handleAddSavedName}
+          storeId={storeId}
+          region={region}
+          onAddSavedName={addSavedName}
           registerAddHandler={(fn) => {
             queueAddRef.current = fn;
           }}
           onOpenAddModal={openAddModal}
         />
+
       </div>
     </div>
     </AuthGate>
