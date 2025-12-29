@@ -34,11 +34,13 @@ export default function Queue({
 }: QueueProps) {
   // ✅ TODO: Replace these with your real selected store/region if you have a selector elsewhere
   const { data, initIfMissing, updateFeed } = useStoreFeed(storeId, region);
+  
   const {
-  savedManagers,
-  addManager,
-  initIfMissing: initSavedManagers,
-} = useSavedManagersFirestore(storeId);
+    savedManagers = [],
+    addManager,
+    initIfMissing: initSavedManagers,
+  } = useSavedManagersFirestore(storeId);
+
 console.log("savedManagers", savedManagers);
 
 
@@ -73,15 +75,6 @@ useEffect(() => {
     return () => clearInterval(id);
   }, []);
 
-  //Let's see if this goes here
-  const handleAdminAddManager = async () => {
-  const nm = adminManagerInput.trim();
-  if (!nm) return;
-
-  await addManager(nm);
-  setAdminManagerInput("");
-};
-
 
   // modals
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null); // queue -> active (join type)
@@ -95,7 +88,6 @@ useEffect(() => {
   // manager selection shared
   const [selectedManagerIds, setSelectedManagerIds] = useState<string[]>([]);
   const [newManagerName, setNewManagerName] = useState("");
-  const [adminManagerInput, setAdminManagerInput] = useState("");
 
 
   // where to requeue after "Done"
@@ -991,33 +983,7 @@ setSelectedManagerIds(selectedIds);
               </div>
             )}
           </div>
-
-          {role === "Admin" && (
-  <div className="rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-lg">
-    <p className="text-sm font-semibold text-slate-200 mb-2">
-      Add Manager
-    </p>
-
-    <div className="flex gap-2">
-      <input
-        value={adminManagerInput}
-        onChange={(e) => setAdminManagerInput(e.target.value)}
-        placeholder="Manager name"
-        className="flex-1 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
-      />
-
-      <button
-        type="button"
-        onClick={handleAdminAddManager}
-        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
-      >
-        Add
-      </button>
-    </div>
-  </div>
-)}
-
-
+          
           {role === "Admin" && activeTab === "done"
             ? completed.map((e) => (
                 <div

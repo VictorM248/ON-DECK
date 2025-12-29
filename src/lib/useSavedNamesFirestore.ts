@@ -1,16 +1,9 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { doc, getDoc, onSnapshot, runTransaction, setDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
-export type SavedName = {
-  id: string;
-  firstName: string;
-  lastName: string;
-};
-
-type SavedNamesDoc = {
-  names: SavedName[];
-};
+export type SavedName = { id: string; firstName: string; lastName: string };
+type SavedNamesDoc = { names: SavedName[] };
 
 export function useSavedNamesFirestore(storeId: string) {
   const ref = useMemo(() => doc(db, "stores", storeId, "meta", "savedNames"), [storeId]);
@@ -34,40 +27,47 @@ export function useSavedNamesFirestore(storeId: string) {
   }, [ref]);
 
   const initIfMissing = useCallback(async () => {
-    await setDoc(ref, { names: [] }, { merge: true });
+    const snap = await getDoc(ref);
+    if (!snap.exists()) await setDoc(ref, { names: [] }, { merge: true });
   }, [ref]);
 
   const addSavedName = useCallback(
     async (firstName: string, lastName: string) => {
-      const fn = firstName.trim();
-      const ln = lastName.trim();
-      if (!fn) return;
+      const fn = firstName.trim().replace(/\s+/g, " ");
+      const ln = lastName.trim().replace(/\s+/g, " ");
+      if (!fn) return null;
 
-      const key = `${fn.toLowerCase()}|${ln.toLowerCase()}`;
-      const exists = savedNames.some(
-        (n) => `${n.firstName.toLowerCase()}|${n.lastName.toLowerCase()}` === key
-      );
-      if (exists) return;
+      return await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        const current: SavedName[] = snap.exists()
+          ? ((snap.data() as SavedNamesDoc).names ?? [])
+          : [];
 
-      const next: SavedName[] = [
-        ...savedNames,
-        { id: crypto.randomUUID(), firstName: fn, lastName: ln },
-      ];
+        const exists = current.find(
+          (n) =>
+            n.firstName.toLowerCase() === fn.toLowerCase() &&
+            (n.lastName ?? "").toLowerCase() === (ln ?? "").toLowerCase()
+        );
+        if (exists) return exists;
 
-      // Ensure doc exists, then update
-      await setDoc(ref, { names: [] }, { merge: true });
-      await updateDoc(ref, { names: next });
+        const next: SavedName = { id: crypto.randomUUID(), firstName: fn, lastName: ln };
+        tx.set(ref, { names: [...current, next] }, { merge: true });
+        return next;
+      });
     },
-    [ref, savedNames]
+    [ref]
   );
 
   const removeSavedName = useCallback(
     async (id: string) => {
-      const next = savedNames.filter((n) => n.id !== id);
-      await setDoc(ref, { names: [] }, { merge: true });
-      await updateDoc(ref, { names: next });
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return;
+        const current = ((snap.data() as SavedNamesDoc).names ?? []) as SavedName[];
+        tx.set(ref, { names: current.filter((n) => n.id !== id) }, { merge: true });
+      });
     },
-    [ref, savedNames]
+    [ref]
   );
 
   return { savedNames, addSavedName, removeSavedName, initIfMissing, loading };
