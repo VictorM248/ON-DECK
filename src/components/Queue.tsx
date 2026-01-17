@@ -4,10 +4,10 @@ import { useSavedManagersFirestore } from "../lib/useSavedManagersFirestore";
 
 type JoinType = "walk-in" | "appointment";
 
-// Keep Entry identical to QueueEntry to avoid UI changes
-type Entry = QueueEntry;
+// Extend locally so TS knows about originalQueueIndex without changing backend types yet
+type Entry = QueueEntry & { originalQueueIndex?: number };
 
-//This is commented out because I have no idea if it will break if I remove it.
+//This is commented out because Idk what I'm doing with my saved managers yet
 //type Manager = {
 //  id: string;
 //  name: string;
@@ -24,7 +24,6 @@ type QueueProps = {
   onOpenAddModal?: () => void;
 };
 
-
 export default function Queue({
   role,
   storeId,
@@ -32,23 +31,20 @@ export default function Queue({
   onAddSavedName,
   registerAddHandler,
 }: QueueProps) {
-  // ✅ TODO: Replace these with your real selected store/region if you have a selector elsewhere
+  // TODO: Replace these with your real selected store/region if you have a selector elsewhere
   const { data, initIfMissing, updateFeed } = useStoreFeed(storeId, region);
-  
+
   const {
     savedManagers = [],
     addManager,
     initIfMissing: initSavedManagers,
   } = useSavedManagersFirestore(storeId);
 
-console.log("savedManagers", savedManagers);
+  console.log("savedManagers", savedManagers);
 
-
-useEffect(() => {
-  initSavedManagers();
-}, [initSavedManagers]);
-
-
+  useEffect(() => {
+    initSavedManagers();
+  }, [initSavedManagers]);
 
   const queue = (data.queue ?? []) as Entry[];
   const active = (data.active ?? []) as Entry[];
@@ -59,7 +55,6 @@ useEffect(() => {
     initIfMissing();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId, region]);
-
 
   // right-side tab (Admin only)
   const [activeTab, setActiveTab] = useState<"with" | "done">("with");
@@ -75,7 +70,6 @@ useEffect(() => {
     return () => clearInterval(id);
   }, []);
 
-
   // modals
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null); // queue -> active (join type)
   const [doneActiveId, setDoneActiveId] = useState<string | null>(null); // active -> queue (send back)
@@ -88,7 +82,6 @@ useEffect(() => {
   // manager selection shared
   const [selectedManagerIds, setSelectedManagerIds] = useState<string[]>([]);
   const [newManagerName, setNewManagerName] = useState("");
-
 
   // where to requeue after "Done"
   const [returnPosition, setReturnPosition] = useState<"top" | "bottom">(
@@ -103,7 +96,7 @@ useEffect(() => {
 
   // ---- Firestore write helper (always write all 3 arrays to keep state consistent) ----
   const stripUndefined = <T,>(obj: T): T =>
-  JSON.parse(JSON.stringify(obj)) as T;
+    JSON.parse(JSON.stringify(obj)) as T;
 
   const setLists = useCallback(
     async (next: { queue: Entry[]; active: Entry[]; completed: Entry[] }) => {
@@ -123,7 +116,6 @@ useEffect(() => {
     },
     [updateFeed]
   );
-
 
   const fullName = (e: Entry) => `${e.firstName} ${e.lastName}`.trim();
 
@@ -254,7 +246,9 @@ useEffect(() => {
   const confirmMoveWithType = async (type: JoinType) => {
     if (!selectedEntryId) return;
 
-    const entry = queue.find((e) => e.id === selectedEntryId);
+    const idx = queue.findIndex((e) => e.id === selectedEntryId);
+    const entry = queue[idx];
+
     if (!entry) {
       setSelectedEntryId(null);
       return;
@@ -267,6 +261,7 @@ useEffect(() => {
         ...entry,
         joinType: type,
         serviceStart: Date.now(),
+        originalQueueIndex: idx, // save original spot
       },
     ];
 
@@ -350,32 +345,31 @@ useEffect(() => {
     }
 
     // Build selected IDs first (so typed name gets an ID and can be "selected")
-let selectedIds = [...selectedManagerIds];
+    let selectedIds = [...selectedManagerIds];
 
-const nm = newManagerName.trim();
-let typed = null as { id: string; name: string } | null;
+    const nm = newManagerName.trim();
+    let typed = null as { id: string; name: string } | null;
 
-if (nm) {
-  if (role === "Admin") {
-    typed = await addManager(nm); // Admin can persist
-  }
-  if (typed && !selectedIds.includes(typed.id)) selectedIds.push(typed.id);
-}
+    if (nm) {
+      if (role === "Admin") {
+        typed = await addManager(nm); // Admin can persist
+      }
+      if (typed && !selectedIds.includes(typed.id)) selectedIds.push(typed.id);
+    }
 
-// max 3
-if (selectedIds.length > 3) selectedIds = selectedIds.slice(0, 3);
+    // max 3
+    if (selectedIds.length > 3) selectedIds = selectedIds.slice(0, 3);
 
-// Build id->name map (include typed even before snapshot refresh)
-const idToName = new Map<string, string>();
-for (const m of savedManagers) idToName.set(m.id, m.name);
-if (typed) idToName.set(typed.id, typed.name);
+    // Build id->name map (include typed even before snapshot refresh)
+    const idToName = new Map<string, string>();
+    for (const m of savedManagers) idToName.set(m.id, m.name);
+    if (typed) idToName.set(typed.id, typed.name);
 
-const managersList = selectedIds
-  .map((id) => idToName.get(id))
-  .filter((x): x is string => Boolean(x));
+    const managersList = selectedIds
+      .map((id) => idToName.get(id))
+      .filter((x): x is string => Boolean(x));
 
-setSelectedManagerIds(selectedIds);
-
+    setSelectedManagerIds(selectedIds);
 
     // save completed entry
     const completedEntry: Entry = {
@@ -383,7 +377,7 @@ setSelectedManagerIds(selectedIds);
       managers: managersList,
     };
 
-    // 2-minute rule for top
+    // 2-minute rule for top (keep as-is for this flow)
     const canSendTop = entry.serviceStart
       ? now - entry.serviceStart < 2 * 60 * 1000
       : true;
@@ -406,12 +400,29 @@ setSelectedManagerIds(selectedIds);
 
     const nextActive = active.filter((e) => e.id !== completeEntryId);
     const nextCompleted = [...completed, completedEntry];
-    const nextQueue =
-      finalPosition === "top"
-        ? [requeuedEntry, ...queue]
-        : [...queue, requeuedEntry];
 
-    await setLists({ queue: nextQueue, active: nextActive, completed: nextCompleted });
+let nextQueue: Entry[];
+
+if (finalPosition === "top") {
+  // "top" is now repurposed to mean: original spot in queue
+  const originalIndex =
+    typeof entry.originalQueueIndex === "number" ? entry.originalQueueIndex : 0;
+
+  const safeIndex = Math.max(0, Math.min(originalIndex, queue.length));
+
+  nextQueue = [...queue];
+  nextQueue.splice(safeIndex, 0, requeuedEntry);
+} else {
+  nextQueue = [...queue, requeuedEntry];
+}
+
+
+
+    await setLists({
+      queue: nextQueue,
+      active: nextActive,
+      completed: nextCompleted,
+    });
     closeCompleteModal();
   };
 
@@ -423,8 +434,8 @@ setSelectedManagerIds(selectedIds);
     });
   };
 
-  // send active back to queue (no completed) (Firestore write)
-  const moveActiveBackToQueue = async (position: "top" | "bottom") => {
+  // REPURPOSED: send active back to ORIGINAL queue spot (only allowed under 2 minutes in UI)
+  const moveActiveBackToQueueOriginal = async () => {
     if (!doneActiveId) return;
 
     const entry = active.find((e) => e.id === doneActiveId);
@@ -435,38 +446,46 @@ setSelectedManagerIds(selectedIds);
 
     let selectedIds = [...selectedManagerIds];
 
-const nm = newManagerName.trim();
-let typed = null as { id: string; name: string } | null;
+    const nm = newManagerName.trim();
+    let typed = null as { id: string; name: string } | null;
 
-if (nm) {
-  if (role === "Admin") {
-    typed = await addManager(nm);
-  }
-  if (typed && !selectedIds.includes(typed.id)) selectedIds.push(typed.id);
-}
+    if (nm) {
+      if (role === "Admin") {
+        typed = await addManager(nm);
+      }
+      if (typed && !selectedIds.includes(typed.id)) selectedIds.push(typed.id);
+    }
 
-if (selectedIds.length > 3) selectedIds = selectedIds.slice(0, 3);
+    if (selectedIds.length > 3) selectedIds = selectedIds.slice(0, 3);
 
-const idToName = new Map<string, string>();
-for (const m of savedManagers) idToName.set(m.id, m.name);
-if (typed) idToName.set(typed.id, typed.name);
+    const idToName = new Map<string, string>();
+    for (const m of savedManagers) idToName.set(m.id, m.name);
+    if (typed) idToName.set(typed.id, typed.name);
 
-const helpers = selectedIds
-  .map((id) => idToName.get(id))
-  .filter((x): x is string => Boolean(x));
+    const helpers = selectedIds
+      .map((id) => idToName.get(id))
+      .filter((x): x is string => Boolean(x));
 
-setSelectedManagerIds(selectedIds);
+    setSelectedManagerIds(selectedIds);
 
+    const originalIndex =
+      typeof entry.originalQueueIndex === "number"
+        ? entry.originalQueueIndex
+        : queue.length; // fallback: bottom if missing
+
+    const safeIndex = Math.max(0, Math.min(originalIndex, queue.length));
 
     const cleaned: Entry = {
       ...entry,
       serviceStart: undefined,
+      joinType: undefined,
       managers: helpers.length > 0 ? helpers : entry.managers,
     };
 
     const nextActive = active.filter((e) => e.id !== doneActiveId);
-    const nextQueue =
-      position === "top" ? [cleaned, ...queue] : [...queue, cleaned];
+
+    const nextQueue = [...queue];
+    nextQueue.splice(safeIndex, 0, cleaned);
 
     await setLists({ queue: nextQueue, active: nextActive, completed });
 
@@ -559,6 +578,7 @@ setSelectedManagerIds(selectedIds);
               const e = active.find((a) => a.id === doneActiveId);
               if (!e) return null;
 
+              // Keep 2-min rule"
               const canSendTop =
                 e.serviceStart ? now - e.serviceStart < 2 * 60 * 1000 : true;
 
@@ -567,21 +587,20 @@ setSelectedManagerIds(selectedIds);
                   <div className="flex flex-col gap-3">
                     {canSendTop && (
                       <button
-                        onClick={() => moveActiveBackToQueue("top")}
+                        onClick={() => void moveActiveBackToQueueOriginal()}
                         className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
                       >
-                        Send to <span className="font-semibold">top</span> of
+                        Send back to{" "}
+                        <span className="font-semibold">original spot</span> in
                         queue
                       </button>
                     )}
 
-                    <button
-                      onClick={() => moveActiveBackToQueue("bottom")}
-                      className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
-                    >
-                      Send to <span className="font-semibold">bottom</span> of
-                      queue
-                    </button>
+                    {!canSendTop && (
+                      <p className="text-xs text-slate-400 italic">
+                        This option is only available within the first 2 minutes.
+                      </p>
+                    )}
                   </div>
 
                   <div className="mt-2">
@@ -684,28 +703,88 @@ setSelectedManagerIds(selectedIds);
                         <button
                           type="button"
                           onClick={() => setReturnPosition("top")}
-                          className={`rounded-xl border px-4 py-2 text-left text-sm ${
-                            returnPosition === "top"
-                              ? "bg-slate-800 border-blue-500 text-slate-100"
-                              : "bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800"
-                          }`}
+                          className={`rounded-xl px-4 py-2 text-sm
+                            flex items-center justify-center text-center
+                            ${
+                              returnPosition === "top"
+                                ? "outline-runner bg-slate-800 text-slate-100"
+                                : "border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
+                            }
+                          `}
                         >
-                          Send to <span className="font-semibold">top</span> of
-                          queue
+                          {returnPosition === "top" && (
+                            <svg aria-hidden="true">
+                              <defs>
+                                <linearGradient id="runnerGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                  <stop offset="0%" stopColor="#22c55e" />
+                                  <stop offset="20%" stopColor="#06b6d4" />
+                                  <stop offset="40%" stopColor="#3b82f6" />
+                                  <stop offset="60%" stopColor="#a855f7" />
+                                  <stop offset="80%" stopColor="#ec4899" />
+                                  <stop offset="100%" stopColor="#f97316" />
+                                </linearGradient>
+                              </defs>
+
+                              <rect
+                                className="runner-rect"
+                                x="1"
+                                y="1"
+                                width="calc(100% - 2px)"
+                                height="calc(100% - 2px)"
+                                rx="12"
+                                ry="12"
+                                pathLength="1000"
+                                stroke="url(#runnerGradient)"
+                              />
+                            </svg>
+                          )}
+
+                          <span className="outline-runner-content">
+                            Send to<span className="font-semibold mx-1">original</span>spot in queue
+                          </span>
                         </button>
                       )}
-
                       <button
                         type="button"
                         onClick={() => setReturnPosition("bottom")}
-                        className={`rounded-xl border px-4 py-2 text-left text-sm ${
-                          returnPosition === "bottom"
-                            ? "bg-slate-800 border-blue-500 text-slate-100"
-                            : "bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800"
-                        }`}
+                        className={`rounded-xl px-4 py-2 text-sm
+                          flex items-center justify-center text-center
+                          ${
+                            returnPosition === "bottom"
+                              ? "outline-runner bg-slate-800 text-slate-100"
+                              : "border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
+                          }`}
                       >
-                        Send to{" "}
-                        <span className="font-semibold">bottom</span> of queue
+                        {returnPosition === "bottom" && (
+                          <svg aria-hidden="true">
+                            <defs>
+                              <linearGradient id="runnerGradientBottom" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stopColor="#22c55e" />
+                                <stop offset="20%" stopColor="#06b6d4" />
+                                <stop offset="40%" stopColor="#3b82f6" />
+                                <stop offset="60%" stopColor="#a855f7" />
+                                <stop offset="80%" stopColor="#ec4899" />
+                                <stop offset="100%" stopColor="#f97316" />
+                              </linearGradient>
+                            </defs>
+
+                            <rect
+                              className="runner-rect"
+                              x="1"
+                              y="1"
+                              width="calc(100% - 2px)"
+                              height="calc(100% - 2px)"
+                              rx="12"
+                              ry="12"
+                              pathLength="1000"
+                              stroke="url(#runnerGradientBottom)"
+                            />
+                          </svg>
+                        )}
+
+                        <span className="outline-runner-content">
+                          Send to<span className="font-semibold mx-1">bottom</span>of queue
+                        </span>
                       </button>
                     </div>
                   </div>
@@ -749,7 +828,6 @@ setSelectedManagerIds(selectedIds);
                       placeholder={role === "Admin" ? "Manager name" : "Admin only"}
                       className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
-
                   </div>
                 </>
               );
@@ -983,7 +1061,7 @@ setSelectedManagerIds(selectedIds);
               </div>
             )}
           </div>
-          
+
           {role === "Admin" && activeTab === "done"
             ? completed.map((e) => (
                 <div
@@ -1004,7 +1082,9 @@ setSelectedManagerIds(selectedIds);
 
                     <div className="flex-1">
                       <div className="text-2xl font-semibold text-slate-100">
-                        {e.teamLabel ? e.teamLabel : `${e.firstName} ${e.lastName}`}
+                        {e.teamLabel
+                          ? e.teamLabel
+                          : `${e.firstName} ${e.lastName}`}
                       </div>
 
                       <div className="flex items-center gap-2 mt-0.5">
@@ -1023,7 +1103,9 @@ setSelectedManagerIds(selectedIds);
                       {e.managers?.length ? (
                         <div className="text-xs text-slate-300 mt-1">
                           Managers:{" "}
-                          <span className="font-medium">{e.managers.join(", ")}</span>
+                          <span className="font-medium">
+                            {e.managers.join(", ")}
+                          </span>
                         </div>
                       ) : null}
                     </div>
@@ -1062,7 +1144,9 @@ setSelectedManagerIds(selectedIds);
 
                       <div className="flex-1">
                         <div className="text-2xl font-semibold text-slate-100">
-                          {e.teamLabel ? e.teamLabel : `${e.firstName} ${e.lastName}`}
+                          {e.teamLabel
+                            ? e.teamLabel
+                            : `${e.firstName} ${e.lastName}`}
                         </div>
 
                         <div className="flex items-center gap-2 mt-0.5">

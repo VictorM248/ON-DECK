@@ -1,1 +1,43 @@
 @import "tailwindcss";
+
+.outline-runner {
+  position: relative;
+  isolation: isolate;
+}
+
+.outline-runner svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.outline-runner .runner-rect {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+
+  /* runner segment length (out of 1000) */
+  stroke-dasharray: 120 880;
+  stroke-dashoffset: 0;
+
+  animation: outlineRun 3.5s linear infinite;
+
+  vector-effect: non-scaling-stroke;
+  shape-rendering: geometricPrecision;
+}
+
+@keyframes outlineRun {
+  to {
+    stroke-dashoffset: -1000; /* full lap */
+  }
+}
+
+
+/* keeps button content above the SVG */
+.outline-runner-content {
+  position: relative;
+  z-index: 2;
+}
