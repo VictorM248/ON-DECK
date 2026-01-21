@@ -8,7 +8,6 @@ import {
   getDoc,
 } from "firebase/firestore";
 
-
 export type QueueEntry = {
   id: string;
   firstName: string;
@@ -19,6 +18,9 @@ export type QueueEntry = {
   joinType?: "walk-in" | "appointment";
   managers?: string[];
   teamLabel?: string;
+
+  // ✅ added: under-2-minute return reason
+  earlyReason?: "service" | "parts" | "finance" | "other";
 };
 
 type StoreFeed = {
@@ -52,22 +54,22 @@ export function useStoreFeed(storeId: string, region: string) {
   }, [storeId, region]);
 
   const initIfMissing = async () => {
-  const ref = doc(db, "stores", storeId, "regions", region);
-  const snap = await getDoc(ref);
+    const ref = doc(db, "stores", storeId, "regions", region);
+    const snap = await getDoc(ref);
 
-  if (!snap.exists()) {
-    await setDoc(ref, {
-      queue: [],
-      active: [],
-      completed: [],
-    });
-  }
-};
+    if (!snap.exists()) {
+      await setDoc(ref, {
+        queue: [],
+        active: [],
+        completed: [],
+      });
+    }
+  };
 
-const updateFeed = async (partial: Partial<StoreFeed>) => {
-  const ref = doc(db, "stores", storeId, "regions", region);
-  await updateDoc(ref, partial);
-};
+  const updateFeed = async (partial: Partial<StoreFeed>) => {
+    const ref = doc(db, "stores", storeId, "regions", region);
+    await updateDoc(ref, partial);
+  };
 
   return {
     data,

@@ -74,6 +74,12 @@ export default function Queue({
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null); // queue -> active (join type)
   const [doneActiveId, setDoneActiveId] = useState<string | null>(null); // active -> queue (send back)
   const [completeEntryId, setCompleteEntryId] = useState<string | null>(null); // done -> completed + requeue
+  // early return (under 2 min) reason modal
+  type EarlyReason = "service" | "parts" | "finance" | "other";
+
+  const [earlyReasonModalOpen, setEarlyReasonModalOpen] = useState(false);
+  const [earlyReason, setEarlyReason] = useState<EarlyReason | null>(null);
+
 
   // team modal
   const [teamEntryId, setTeamEntryId] = useState<string | null>(null);
@@ -169,6 +175,16 @@ export default function Queue({
 
     return null;
   };
+
+    //Yay another helper! // reason label for early return
+    const earlyReasonLabel = (r?: Entry["earlyReason"]) => {
+    if (!r) return null;
+    if (r === "service") return "Service";
+    if (r === "parts") return "Parts";
+    if (r === "finance") return "Finance";
+    return "Other";
+  };
+
 
   const formatJoined = (ts?: number) =>
     ts
@@ -375,7 +391,9 @@ export default function Queue({
     const completedEntry: Entry = {
       ...entry,
       managers: managersList,
+      earlyReason: earlyReason ?? undefined,
     };
+
 
     // 2-minute rule for top (keep as-is for this flow)
     const canSendTop = entry.serviceStart
@@ -841,15 +859,79 @@ if (finalPosition === "top") {
                 Cancel
               </button>
               <button
-                onClick={handleConfirmComplete}
+                onClick={() => {
+                  const e = active.find((a) => a.id === completeEntryId);
+                  const canSendTop = e?.serviceStart ? now - e.serviceStart < 2 * 60 * 1000 : true;
+
+                  // only trigger new modal for the "original spot" path under 2 minutes
+                  if (returnPosition === "top" && canSendTop) {
+                    setEarlyReasonModalOpen(true);
+                    return;
+                  }
+
+                  handleConfirmComplete();
+                }}
                 className="flex-1 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
               >
                 Save visit
               </button>
+
             </div>
           </div>
         </div>
       )}
+
+      {/* MODAL: Under-2-min reason (opens after Save visit) */}
+        {earlyReasonModalOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            onClick={() => setEarlyReasonModalOpen(false)}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 className="text-lg font-semibold text-slate-100 mb-2">
+                Customer needed...
+              </h2>
+
+              <p className="text-sm text-slate-300 mb-4">
+                Select where they needed to go.
+              </p>
+
+              <div className="grid grid-cols-2 gap-3">
+                {([
+                  ["service", "Service"],
+                  ["parts", "Parts"],
+                  ["finance", "Finance"],
+                  ["other", "Other"],
+                ] as const).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setEarlyReason(key);
+                      setEarlyReasonModalOpen(false);
+                      handleConfirmComplete(); // continues the save flow
+                    }}
+                    className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm font-medium text-slate-100 hover:bg-slate-700"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setEarlyReasonModalOpen(false)}
+                className="mt-4 w-full rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+)}
+
 
       {/* MODAL: Team for active card */}
       {teamEntryId && (
@@ -1093,6 +1175,14 @@ if (finalPosition === "top") {
                         </span>
                         {joinBadge(e)}
                       </div>
+
+                      {e.earlyReason && (
+                        <div className="text-xs text-slate-300 mt-1">
+                          Customer needed:{" "}
+                          <span className="font-medium">{earlyReasonLabel(e.earlyReason)}</span>
+                        </div>
+                      )}
+
 
                       {e.note && (
                         <div className="text-sm text-slate-200 italic mt-1">
