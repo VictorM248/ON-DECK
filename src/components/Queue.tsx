@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useStoreFeed, type QueueEntry } from "../lib/useStoreFeed";
 import { useSavedManagersFirestore } from "../lib/useSavedManagersFirestore";
+import { isAdminLike } from "../lib/roles";
 
 type JoinType = "walk-in" | "appointment";
 
@@ -367,7 +368,7 @@ export default function Queue({
     let typed = null as { id: string; name: string } | null;
 
     if (nm) {
-      if (role === "Admin") {
+      if (isAdminLike(role)) {
         typed = await addManager(nm); // Admin can persist
       }
       if (typed && !selectedIds.includes(typed.id)) selectedIds.push(typed.id);
@@ -468,7 +469,7 @@ if (finalPosition === "top") {
     let typed = null as { id: string; name: string } | null;
 
     if (nm) {
-      if (role === "Admin") {
+      if (isAdminLike(role)) {
         typed = await addManager(nm);
       }
       if (typed && !selectedIds.includes(typed.id)) selectedIds.push(typed.id);
@@ -656,7 +657,7 @@ if (finalPosition === "top") {
                       value={newManagerName}
                       onChange={(e) => setNewManagerName(e.target.value)}
                       disabled={role !== "Admin"}
-                      placeholder={role === "Admin" ? "Manager name" : "Admin only"}
+                      placeholder={isAdminLike(role) ? "Manager name" : "Admin only"}
                       className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
@@ -843,7 +844,7 @@ if (finalPosition === "top") {
                       value={newManagerName}
                       onChange={(e) => setNewManagerName(e.target.value)}
                       disabled={role !== "Admin"}
-                      placeholder={role === "Admin" ? "Manager name" : "Admin only"}
+                      placeholder={isAdminLike(role) ? "Manager name" : "Admin only"}
                       className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
@@ -1028,7 +1029,7 @@ if (finalPosition === "top") {
               <span>In Queue ({queue.length} waiting)</span>
 
               <div className="flex gap-2">
-                {role === "Admin" && (
+                {isAdminLike(role) && (
                   <button
                     onClick={clearQueue}
                     className="text-xs text-red-400 hover:text-red-300 disabled:text-slate-500"
@@ -1081,7 +1082,7 @@ if (finalPosition === "top") {
                     </div>
                   </div>
 
-                  {role === "Admin" && (
+                  {isAdminLike(role) && (
                     <button
                       onClick={(ev) => {
                         ev.stopPropagation();
@@ -1101,7 +1102,7 @@ if (finalPosition === "top") {
         {/* RIGHT — ACTIVE + COMPLETED */}
         <div className="w-full lg:w-2/3 space-y-6">
           <div className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 bg-slate-900 shadow-lg">
-            {role === "Admin" ? (
+            {isAdminLike(role) ? (
               <div className="flex items-center justify-between">
                 <div className="flex gap-2">
                   <button
@@ -1144,7 +1145,7 @@ if (finalPosition === "top") {
             )}
           </div>
 
-          {role === "Admin" && activeTab === "done"
+        {isAdminLike(role) && activeTab === "done"
             ? completed.map((e) => (
                 <div
                   key={e.id}

@@ -6,6 +6,9 @@ import { AuthGate } from "./components/AuthGate";
 import { useStoreFeed } from "./lib/useStoreFeed";
 import { useSavedNamesFirestore } from "./lib/useSavedNamesFirestore";
 import { useSavedManagersFirestore } from "./lib/useSavedManagersFirestore";
+import { isAdminLike } from "./lib/roles";
+
+
 
 type Role = "Sales" | "Admin";
 
@@ -148,7 +151,7 @@ export default function App() {
     <AuthGate>
       <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-700 text-slate-100">
         {/* ADD CHOOSER MODAL (Admin only) */}
-        {addChooserOpen && role === "Admin" && (
+        {addChooserOpen && isAdminLike(role) && (
           <div
             className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm"
             onClick={() => setAddChooserOpen(false)}
@@ -211,7 +214,7 @@ export default function App() {
               </h2>
 
               {/* Admin view section */}
-              {role === "Admin" ? (
+              {isAdminLike(role) ? (
                 <>
                   <div className="space-y-3 mb-4">
                     <input
@@ -360,7 +363,7 @@ export default function App() {
         {/* END ADD GUEST MODAL */}
 
         {/* ADD MANAGER MODAL (Admin only) - MUST be outside Add Guest modal */}
-        {managerModalOpen && role === "Admin" && (
+        {managerModalOpen && isAdminLike(role) && (
           <div
             className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm"
             onClick={() => {
@@ -463,7 +466,7 @@ export default function App() {
               <div className="w-full flex justify-center">
                 <button
                   onClick={() =>
-                    role === "Admin" ? setAddChooserOpen(true) : openAddModal()
+                    isAdminLike(role) ? setAddChooserOpen(true) : openAddModal()
                   }
                   className="h-16 w-16 flex items-center justify-center rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-500 transition -translate-y-2"
                 >
