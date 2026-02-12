@@ -8,7 +8,14 @@ import { useSavedNamesFirestore } from "./lib/useSavedNamesFirestore";
 import { useSavedManagersFirestore } from "./lib/useSavedManagersFirestore";
 import { isAdminLike } from "./lib/roles";
 
-
+import { auth, db } from "./lib/firebase";
+import {
+  GoogleAuthProvider,
+  reauthenticateWithPopup,
+  reauthenticateWithRedirect,
+} from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { UserPlus, UserStar } from "lucide-react";
 
 type Role = "Sales" | "Admin";
 
@@ -23,9 +30,143 @@ export default function App() {
   const [role, setRole] = useState<Role>(
     () => (localStorage.getItem("role") as Role) ?? "Sales"
   );
+
+  // =========================
+  // ADMIN RE-AUTH GATE
+  // =========================
+  // Require PIN + re-auth again after this window.
+  const ADMIN_UNLOCK_MS = 2 * 60 * 1000; // 2 minutes
+  const ADMIN_UNLOCK_KEY = "adminUnlockedUntil";
+
+  const [adminUnlockedUntil, setAdminUnlockedUntil] = useState<number>(() => {
+    const raw = Number(sessionStorage.getItem(ADMIN_UNLOCK_KEY) ?? "0");
+    return Number.isFinite(raw) ? raw : 0;
+  });
+
+  const adminLockTimeoutRef = useRef<number | null>(null);
+  const isAdminUnlocked = Date.now() < adminUnlockedUntil;
+
+  // ADMIN PIN GATE (UI-only protection)
+  const ADMIN_PIN = import.meta.env.VITE_ADMIN_PIN || "";
+  const [adminPinOpen, setAdminPinOpen] = useState(false);
+  const [adminPin, setAdminPin] = useState("");
+  const [adminPinError, setAdminPinError] = useState("");
+
+  // Prevent multiple popups / double clicks
+  const adminAuthInProgressRef = useRef(false);
+
+  function lockAdminNow() {
+    setAdminUnlockedUntil(0);
+    sessionStorage.setItem(ADMIN_UNLOCK_KEY, "0");
+
+    setRole("Sales");
+    localStorage.setItem("role", "Sales"); // prevent booting into fake Admin on reload
+
+    if (adminLockTimeoutRef.current) {
+      window.clearTimeout(adminLockTimeoutRef.current);
+      adminLockTimeoutRef.current = null;
+    }
+  }
+
+  function unlockAdminForWindow() {
+    const until = Date.now() + ADMIN_UNLOCK_MS;
+    setAdminUnlockedUntil(until);
+    sessionStorage.setItem(ADMIN_UNLOCK_KEY, String(until));
+
+    if (adminLockTimeoutRef.current) {
+      window.clearTimeout(adminLockTimeoutRef.current);
+    }
+
+    adminLockTimeoutRef.current = window.setTimeout(() => {
+      lockAdminNow();
+    }, ADMIN_UNLOCK_MS);
+  }
+
+  async function requestAdminAccess() {
+    if (adminAuthInProgressRef.current) return;
+    adminAuthInProgressRef.current = true;
+
+    try {
+      const u = auth.currentUser;
+      if (!u) {
+        alert("You must be signed in.");
+        return;
+      }
+
+      // Verify Firestore role FIRST (avoid prompting non-admins)
+      const userRef = doc(db, "users", u.uid);
+      const snap = await getDoc(userRef);
+      const r = (snap.data()?.role ?? "").toString().toLowerCase();
+
+      if (r !== "admin" && r !== "owner") {
+        alert("Not authorized for Admin view.");
+        lockAdminNow();
+        return;
+      }
+
+      // Re-authenticate the SAME signed-in user (admin account)
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account login" });
+
+      try {
+        await reauthenticateWithPopup(u, provider);
+      } catch (err: any) {
+        if (
+          err?.code === "auth/popup-blocked" ||
+          err?.code === "auth/popup-closed-by-user" ||
+          err?.code === "auth/operation-not-supported-in-this-environment"
+        ) {
+          await reauthenticateWithRedirect(u, provider);
+          return; // redirect will reload the app
+        }
+        throw err;
+      }
+
+      // Refresh token (good hygiene)
+      await u.getIdToken(true);
+
+      // Success: unlock window and enter Admin view
+      unlockAdminForWindow();
+      setRole("Admin");
+    } catch (e) {
+      console.error("Admin re-auth failed:", e);
+      alert("Admin verification failed.");
+      lockAdminNow();
+    } finally {
+      adminAuthInProgressRef.current = false;
+    }
+  }
+
+  // Persist role, but never allow "Admin" to stick permanently across reloads
   useEffect(() => {
-    localStorage.setItem("role", role);
+    localStorage.setItem("role", role === "Admin" ? "Sales" : role);
   }, [role]);
+
+  // If someone ends up in Admin view without an active unlock window, force Sales
+  useEffect(() => {
+    if (role === "Admin" && !isAdminUnlocked) {
+      lockAdminNow();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role, adminUnlockedUntil]);
+
+  // If we reload and localStorage says Admin, force Sales (safety)
+  useEffect(() => {
+    const saved = (localStorage.getItem("role") as Role) ?? "Sales";
+    if (saved === "Admin") {
+      localStorage.setItem("role", "Sales");
+    }
+  }, []);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (adminLockTimeoutRef.current) {
+        window.clearTimeout(adminLockTimeoutRef.current);
+        adminLockTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // Store name section
   const [storeName, setStoreName] = useState<string>(
@@ -42,8 +183,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("region", region);
   }, [region]);
-
-  //some comment 
 
   // Region feed
   const storeId = "store-1";
@@ -171,9 +310,10 @@ export default function App() {
                     setAddChooserOpen(false);
                     openAddModal();
                   }}
-                  className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
+                  className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
                 >
-                  ➕ Add guest to queue
+                  <UserPlus size={16} className="text-slate-300" />
+                  <span>Add guest to queue</span>
                 </button>
 
                 <button
@@ -182,9 +322,10 @@ export default function App() {
                     setAddChooserOpen(false);
                     setManagerModalOpen(true);
                   }}
-                  className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
+                  className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
                 >
-                  👤 Add manager
+                  <UserStar size={16} className="text-slate-300" />
+                  <span>Add manager</span>
                 </button>
               </div>
 
@@ -276,8 +417,7 @@ export default function App() {
                             >
                               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white text-xs font-semibold">
                                 {(
-                                  n.firstName[0] +
-                                  (n.lastName?.[0] ?? "")
+                                  n.firstName[0] + (n.lastName?.[0] ?? "")
                                 ).toUpperCase()}
                               </div>
 
@@ -324,8 +464,7 @@ export default function App() {
                             <div className="flex items-center gap-3">
                               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white text-xs font-semibold">
                                 {(
-                                  n.firstName[0] +
-                                  (n.lastName?.[0] ?? "")
+                                  n.firstName[0] + (n.lastName?.[0] ?? "")
                                 ).toUpperCase()}
                               </div>
 
@@ -431,6 +570,82 @@ export default function App() {
         )}
         {/* END ADD MANAGER MODAL */}
 
+        {/* ADMIN PIN MODAL */}
+        {adminPinOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setAdminPinOpen(false)}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl text-slate-100"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 className="text-lg font-semibold mb-2">Admin Access</h2>
+              <p className="text-sm text-slate-400 mb-4">
+                Enter the admin PIN to continue.
+              </p>
+
+              <input
+                value={adminPin}
+                onChange={(e) => setAdminPin(e.target.value)}
+                placeholder="Admin PIN"
+                type="password"
+                className="w-full rounded-xl border border-slate-600 bg-slate-800 px-4 py-2 text-sm text-slate-100 placeholder:text-slate-400 outline-none focus:border-blue-500"
+                autoFocus
+                onKeyDown={async (e) => {
+                  if (e.key !== "Enter") return;
+
+                  if (!ADMIN_PIN) {
+                    setAdminPinError("Admin PIN is not configured.");
+                    return;
+                  }
+                  if (adminPin.trim() !== ADMIN_PIN) {
+                    setAdminPinError("Incorrect PIN.");
+                    return;
+                  }
+
+                  setAdminPinOpen(false);
+                  await requestAdminAccess();
+                }}
+              />
+
+              {adminPinError && (
+                <div className="mt-2 text-sm text-red-400">{adminPinError}</div>
+              )}
+
+              <div className="flex gap-2 mt-4">
+                <button
+                  type="button"
+                  onClick={() => setAdminPinOpen(false)}
+                  className="flex-1 rounded-xl border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!ADMIN_PIN) {
+                      setAdminPinError("Admin PIN is not configured.");
+                      return;
+                    }
+                    if (adminPin.trim() !== ADMIN_PIN) {
+                      setAdminPinError("Incorrect PIN.");
+                      return;
+                    }
+
+                    setAdminPinOpen(false);
+                    await requestAdminAccess();
+                  }}
+                  className="flex-1 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* HEADER */}
         <div className="sticky top-0 z-30 bg-gradient-to-b from-slate-900 to-slate-950 backdrop-blur border-b border-blue-900 px-6 py-0.5 relative">
           {/* Center */}
@@ -438,7 +653,17 @@ export default function App() {
             <h1 className="text-2xl font-bold text-slate-100">ON-DECK</h1>
             <p className="text-slate-400 text-xs mt-0.5">Active View: {role}</p>
             <div className="mt-1">
-              <Toggle onChange={setRole} />
+              <Toggle
+                activeRole={role}
+                onSetRole={() => {
+                  lockAdminNow();
+                }}
+                onRequestAdmin={() => {
+                  setAdminPinError("");
+                  setAdminPin("");
+                  setAdminPinOpen(true);
+                }}
+              />
             </div>
           </div>
 
@@ -479,7 +704,9 @@ export default function App() {
 
             {/* Right */}
             <div className="flex flex-col items-end gap-1">
-              <div className="font-mono text-sm text-slate-200">{currentTime}</div>
+              <div className="font-mono text-sm text-slate-200">
+                {currentTime}
+              </div>
 
               <select
                 className={`border border-slate-700 rounded-lg px-3 py-1.5 text-sm shadow-sm 

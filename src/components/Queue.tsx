@@ -1,21 +1,26 @@
 import { useEffect, useState, useCallback } from "react";
-import { useStoreFeed, type QueueEntry } from "../lib/useStoreFeed";
+import {
+  useStoreFeed,
+  type QueueEntry,
+  type JoinType as FeedJoinType,
+} from "../lib/useStoreFeed";
 import { useSavedManagersFirestore } from "../lib/useSavedManagersFirestore";
 import { isAdminLike } from "../lib/roles";
+import { Calendar, Handshake, DoorOpen, Phone, Globe } from "lucide-react";
+import type { ReactElement } from "react";
+import RunnerButton from "../components/RunnerButton";
 
-type JoinType = "walk-in" | "appointment";
 
 // Extend locally so TS knows about originalQueueIndex without changing backend types yet
 type Entry = QueueEntry & { originalQueueIndex?: number };
+type Role = "Sales" | "Admin";
+type JoinType = FeedJoinType;
 
-//This is commented out because Idk what I'm doing with my saved managers yet
-//type Manager = {
-//  id: string;
-//  name: string;
-//};
+// early return (under 2 min) reason modal
+type EarlyReason = "service" | "parts" | "finance" | "other";
 
 type QueueProps = {
-  role: "Sales" | "Admin";
+  role: Role;
   storeId: string;
   region: string;
   onAddSavedName?: (firstName: string, lastName: string) => void;
@@ -32,7 +37,6 @@ export default function Queue({
   onAddSavedName,
   registerAddHandler,
 }: QueueProps) {
-  // TODO: Replace these with your real selected store/region if you have a selector elsewhere
   const { data, initIfMissing, updateFeed } = useStoreFeed(storeId, region);
 
   const {
@@ -41,8 +45,7 @@ export default function Queue({
     initIfMissing: initSavedManagers,
   } = useSavedManagersFirestore(storeId);
 
-  console.log("savedManagers", savedManagers);
-
+  // ✅ Init saved managers doc (if your hook uses a doc per store)
   useEffect(() => {
     initSavedManagers();
   }, [initSavedManagers]);
@@ -51,7 +54,7 @@ export default function Queue({
   const active = (data.active ?? []) as Entry[];
   const completed = (data.completed ?? []) as Entry[];
 
-  // Ensure doc exists (safe; merge: true)
+  // Ensure region doc exists
   useEffect(() => {
     initIfMissing();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -59,7 +62,6 @@ export default function Queue({
 
   // right-side tab (Admin only)
   const [activeTab, setActiveTab] = useState<"with" | "done">("with");
-
   useEffect(() => {
     if (role !== "Admin" && activeTab === "done") setActiveTab("with");
   }, [role, activeTab]);
@@ -67,20 +69,17 @@ export default function Queue({
   // timer tick
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
   }, []);
 
   // modals
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null); // queue -> active (join type)
   const [doneActiveId, setDoneActiveId] = useState<string | null>(null); // active -> queue (send back)
   const [completeEntryId, setCompleteEntryId] = useState<string | null>(null); // done -> completed + requeue
-  // early return (under 2 min) reason modal
-  type EarlyReason = "service" | "parts" | "finance" | "other";
 
   const [earlyReasonModalOpen, setEarlyReasonModalOpen] = useState(false);
   const [earlyReason, setEarlyReason] = useState<EarlyReason | null>(null);
-
 
   // team modal
   const [teamEntryId, setTeamEntryId] = useState<string | null>(null);
@@ -95,13 +94,7 @@ export default function Queue({
     "bottom"
   );
 
-  // persist savedManagers only
-  useEffect(
-    () => localStorage.setItem("savedManagers", JSON.stringify(savedManagers)),
-    [savedManagers]
-  );
-
-  // ---- Firestore write helper (always write all 3 arrays to keep state consistent) ----
+  // ---- Firestore write helper ----
   const stripUndefined = <T,>(obj: T): T =>
     JSON.parse(JSON.stringify(obj)) as T;
 
@@ -150,6 +143,70 @@ export default function Queue({
     return codes.length ? codes.slice(0, 2) : [initials(e)];
   };
 
+  const formatDuration = (sec?: number) => {
+    if (!sec || sec <= 0) return "";
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s.toString().padStart(2, "0")}s`;
+    return `${s}s`;
+  };
+
+  // reason label for early return
+  const earlyReasonLabel = (r?: Entry["earlyReason"]) => {
+    if (!r) return "";
+    if (r === "service") return "Service";
+    if (r === "parts") return "Parts";
+    if (r === "finance") return "Finance";
+    return "Other";
+  };
+
+  const formatJoined = (ts?: number) =>
+    ts
+      ? new Date(ts).toLocaleTimeString([], {
+          hour: "numeric",
+          minute: "2-digit",
+        })
+      : "";
+
+  const formatSince = (start?: number) => {
+    if (!start) return "0m 00s";
+    const diff = Math.floor((now - start) / 1000);
+    const m = Math.floor(diff / 60);
+    const s = diff % 60;
+    return `${m}m ${s.toString().padStart(2, "0")}s`;
+  };
+
+  // joinType badge (supports legacy "appointment")
+  const joinBadge = (e: Entry) => {
+    if (!e.joinType) return null;
+
+    const jt: JoinType =
+      e.joinType === ("appointment" as any) ? ("appt-phone" as const) : e.joinType;
+
+    const map: Record<
+      "walk-in" | "appt-phone" | "appt-online",
+      { label: string; icon: ReactElement }
+    > = {
+      "walk-in": { label: "Walk-in", icon: <DoorOpen size={16} /> },
+      "appt-phone": { label: "Appt (Phone)", icon: <Phone size={16} /> },
+      "appt-online": { label: "Appt (Online)", icon: <Globe size={16} /> },
+    };
+
+    const cfg = map[jt as "walk-in" | "appt-phone" | "appt-online"] ?? {
+      label: "Appointment",
+      icon: <Calendar size={16} />,
+    };
+
+    return (
+      <span className="ml-2 inline-flex items-center gap-2 rounded-full bg-slate-700 px-3 py-1 text-xs text-slate-100 shadow-sm">
+        <span className="text-base">{cfg.icon}</span>
+        <span className="font-medium">{cfg.label}</span>
+      </span>
+    );
+  };
+
   // team badge info for queue list: "TEAM • <other>"
   const parseTeamMembers = (teamLabel?: string) => {
     if (!teamLabel) return [];
@@ -175,43 +232,6 @@ export default function Queue({
     }
 
     return null;
-  };
-
-    //Yay another helper! // reason label for early return
-    const earlyReasonLabel = (r?: Entry["earlyReason"]) => {
-    if (!r) return null;
-    if (r === "service") return "Service";
-    if (r === "parts") return "Parts";
-    if (r === "finance") return "Finance";
-    return "Other";
-  };
-
-
-  const formatJoined = (ts?: number) =>
-    ts
-      ? new Date(ts).toLocaleTimeString([], {
-          hour: "numeric",
-          minute: "2-digit",
-        })
-      : "";
-
-  const formatSince = (start?: number) => {
-    if (!start) return "0m 00s";
-    const diff = Math.floor((now - start) / 1000);
-    const m = Math.floor(diff / 60);
-    const s = diff % 60;
-    return `${m}m ${s.toString().padStart(2, "0")}s`;
-  };
-
-  const joinBadge = (e: Entry) => {
-    if (!e.joinType) return null;
-    const isAppt = e.joinType === "appointment";
-    return (
-      <span className="ml-2 inline-flex items-center gap-2 rounded-full bg-slate-700 px-3 py-1 text-xs text-slate-100 shadow-sm">
-        <span className="text-base">{isAppt ? "📅" : "🚶"}</span>
-        <span className="font-medium">{isAppt ? "Appointment" : "Walk-in"}</span>
-      </span>
-    );
   };
 
   // Add from App modal (Firestore write)
@@ -272,13 +292,13 @@ export default function Queue({
     }
 
     const nextQueue = queue.filter((e) => e.id !== selectedEntryId);
-    const nextActive = [
+    const nextActive: Entry[] = [
       ...active,
       {
         ...entry,
         joinType: type,
         serviceStart: Date.now(),
-        originalQueueIndex: idx, // save original spot
+        originalQueueIndex: idx,
       },
     ];
 
@@ -308,6 +328,7 @@ export default function Queue({
     setSelectedManagerIds([]);
     setNewManagerName("");
     setReturnPosition("bottom");
+    setEarlyReason(null);
   };
 
   const closeCompleteModal = () => {
@@ -315,9 +336,11 @@ export default function Queue({
     setSelectedManagerIds([]);
     setNewManagerName("");
     setReturnPosition("bottom");
+    setEarlyReasonModalOpen(false);
+    setEarlyReason(null);
   };
 
-  // team modal open/close + save (Firestore write)
+  // team modal open/close + save
   const openTeamModal = (entryId: string) => {
     setTeamEntryId(entryId);
     const entry = active.find((e) => e.id === entryId);
@@ -351,8 +374,9 @@ export default function Queue({
     });
   };
 
-  // DONE: log managers, add to Completed, and requeue based on returnPosition + 2min rule (Firestore write)
-  const handleConfirmComplete = async () => {
+  // ✅ DONE: log managers, add to Completed, and requeue
+  // IMPORTANT: reason is passed in to avoid React state timing issues.
+  const handleConfirmComplete = async (reason?: EarlyReason) => {
     if (!completeEntryId) return;
 
     const entry = active.find((e) => e.id === completeEntryId);
@@ -365,7 +389,7 @@ export default function Queue({
     let selectedIds = [...selectedManagerIds];
 
     const nm = newManagerName.trim();
-    let typed = null as { id: string; name: string } | null;
+    let typed: { id: string; name: string } | null = null;
 
     if (nm) {
       if (isAdminLike(role)) {
@@ -389,12 +413,18 @@ export default function Queue({
     setSelectedManagerIds(selectedIds);
 
     // save completed entry
+    const end = Date.now();
+    const durationSec = entry.serviceStart
+      ? Math.max(0, Math.round((end - entry.serviceStart) / 1000))
+      : undefined;
+
     const completedEntry: Entry = {
       ...entry,
       managers: managersList,
-      earlyReason: earlyReason ?? undefined,
+      earlyReason: reason ?? earlyReason ?? undefined,
+      serviceEnd: end,
+      durationSec,
     };
-
 
     // 2-minute rule for top (keep as-is for this flow)
     const canSendTop = entry.serviceStart
@@ -415,33 +445,35 @@ export default function Queue({
       joinType: undefined,
       managers: undefined,
       teamLabel: undefined,
+      earlyReason: undefined,
+      serviceEnd: undefined,
+      durationSec: undefined,
     };
 
     const nextActive = active.filter((e) => e.id !== completeEntryId);
     const nextCompleted = [...completed, completedEntry];
 
-let nextQueue: Entry[];
+    let nextQueue: Entry[];
 
-if (finalPosition === "top") {
-  // "top" is now repurposed to mean: original spot in queue
-  const originalIndex =
-    typeof entry.originalQueueIndex === "number" ? entry.originalQueueIndex : 0;
+    if (finalPosition === "top") {
+      // "top" means: original spot in queue
+      const originalIndex =
+        typeof entry.originalQueueIndex === "number" ? entry.originalQueueIndex : 0;
 
-  const safeIndex = Math.max(0, Math.min(originalIndex, queue.length));
+      const safeIndex = Math.max(0, Math.min(originalIndex, queue.length));
 
-  nextQueue = [...queue];
-  nextQueue.splice(safeIndex, 0, requeuedEntry);
-} else {
-  nextQueue = [...queue, requeuedEntry];
-}
-
-
+      nextQueue = [...queue];
+      nextQueue.splice(safeIndex, 0, requeuedEntry);
+    } else {
+      nextQueue = [...queue, requeuedEntry];
+    }
 
     await setLists({
       queue: nextQueue,
       active: nextActive,
       completed: nextCompleted,
     });
+
     closeCompleteModal();
   };
 
@@ -466,7 +498,7 @@ if (finalPosition === "top") {
     let selectedIds = [...selectedManagerIds];
 
     const nm = newManagerName.trim();
-    let typed = null as { id: string; name: string } | null;
+    let typed: { id: string; name: string } | null = null;
 
     if (nm) {
       if (isAdminLike(role)) {
@@ -490,7 +522,7 @@ if (finalPosition === "top") {
     const originalIndex =
       typeof entry.originalQueueIndex === "number"
         ? entry.originalQueueIndex
-        : queue.length; // fallback: bottom if missing
+        : queue.length;
 
     const safeIndex = Math.max(0, Math.min(originalIndex, queue.length));
 
@@ -540,19 +572,27 @@ if (finalPosition === "top") {
 
             <div className="flex flex-col gap-3">
               <button
-                onClick={() => confirmMoveWithType("walk-in")}
+                onClick={() => void confirmMoveWithType("walk-in")}
                 className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
               >
-                <span className="text-base">🚶</span>
+                <DoorOpen size={16} />
                 <span className="font-medium">Walk-in</span>
               </button>
 
               <button
-                onClick={() => confirmMoveWithType("appointment")}
+                onClick={() => void confirmMoveWithType("appt-phone")}
                 className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
               >
-                <span className="text-base">📅</span>
-                <span className="font-medium">Appointment</span>
+                <Phone size={16} />
+                <span className="font-medium">Appointment (Phone)</span>
+              </button>
+
+              <button
+                onClick={() => void confirmMoveWithType("appt-online")}
+                className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
+              >
+                <Globe size={16} />
+                <span className="font-medium">Appointment (Online)</span>
               </button>
             </div>
 
@@ -597,7 +637,6 @@ if (finalPosition === "top") {
               const e = active.find((a) => a.id === doneActiveId);
               if (!e) return null;
 
-              // Keep 2-min rule"
               const canSendTop =
                 e.serviceStart ? now - e.serviceStart < 2 * 60 * 1000 : true;
 
@@ -712,101 +751,39 @@ if (finalPosition === "top") {
               return (
                 <>
                   {/* Queue position selection */}
-                  <div className="mb-4">
-                    <p className="text-xs text-slate-400 mb-1">
-                      After this visit is logged, where should they go in the
-                      queue?
-                    </p>
-                    <div className="flex flex-col gap-2">
-                      {canSendTop && (
-                        <button
-                          type="button"
-                          onClick={() => setReturnPosition("top")}
-                          className={`rounded-xl px-4 py-2 text-sm
-                            flex items-center justify-center text-center
-                            ${
-                              returnPosition === "top"
-                                ? "outline-runner bg-slate-800 text-slate-100"
-                                : "border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
-                            }
-                          `}
-                        >
-                          {returnPosition === "top" && (
-                            <svg aria-hidden="true">
-                              <defs>
-                                <linearGradient id="runnerGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                                  <stop offset="0%" stopColor="#22c55e" />
-                                  <stop offset="20%" stopColor="#06b6d4" />
-                                  <stop offset="40%" stopColor="#3b82f6" />
-                                  <stop offset="60%" stopColor="#a855f7" />
-                                  <stop offset="80%" stopColor="#ec4899" />
-                                  <stop offset="100%" stopColor="#f97316" />
-                                </linearGradient>
-                              </defs>
+                  {/* Queue position selection */}
+<div className="flex flex-col gap-2">
+  {canSendTop && (
+    <RunnerButton
+      selected={returnPosition === "top"}
+      onClick={() => setReturnPosition("top")}
+      className={`rounded-xl px-4 py-2 text-sm flex items-center justify-center text-center
+        ${
+          returnPosition === "top"
+            ? "bg-slate-800 text-slate-100"
+            : "border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
+        }`}
+      gradientId="runnerGradientTop"
+    >
+      Send to <span className="font-semibold mx-1">original</span> spot in queue
+    </RunnerButton>
+  )}
 
-                              <rect
-                                className="runner-rect"
-                                x="1"
-                                y="1"
-                                width="calc(100% - 2px)"
-                                height="calc(100% - 2px)"
-                                rx="12"
-                                ry="12"
-                                pathLength="1000"
-                                stroke="url(#runnerGradient)"
-                              />
-                            </svg>
-                          )}
+  <RunnerButton
+    selected={returnPosition === "bottom"}
+    onClick={() => setReturnPosition("bottom")}
+    className={`rounded-xl px-4 py-2 text-sm flex items-center justify-center text-center
+      ${
+        returnPosition === "bottom"
+          ? "bg-slate-800 text-slate-100"
+          : "border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
+      }`}
+    gradientId="runnerGradientBottom"
+  >
+    Send to <span className="font-semibold mx-1">bottom</span> of queue
+  </RunnerButton>
+</div>
 
-                          <span className="outline-runner-content">
-                            Send to<span className="font-semibold mx-1">original</span>spot in queue
-                          </span>
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setReturnPosition("bottom")}
-                        className={`rounded-xl px-4 py-2 text-sm
-                          flex items-center justify-center text-center
-                          ${
-                            returnPosition === "bottom"
-                              ? "outline-runner bg-slate-800 text-slate-100"
-                              : "border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
-                          }`}
-                      >
-                        {returnPosition === "bottom" && (
-                          <svg aria-hidden="true">
-                            <defs>
-                              <linearGradient id="runnerGradientBottom" x1="0%" y1="0%" x2="100%" y2="0%">
-                                <stop offset="0%" stopColor="#22c55e" />
-                                <stop offset="20%" stopColor="#06b6d4" />
-                                <stop offset="40%" stopColor="#3b82f6" />
-                                <stop offset="60%" stopColor="#a855f7" />
-                                <stop offset="80%" stopColor="#ec4899" />
-                                <stop offset="100%" stopColor="#f97316" />
-                              </linearGradient>
-                            </defs>
-
-                            <rect
-                              className="runner-rect"
-                              x="1"
-                              y="1"
-                              width="calc(100% - 2px)"
-                              height="calc(100% - 2px)"
-                              rx="12"
-                              ry="12"
-                              pathLength="1000"
-                              stroke="url(#runnerGradientBottom)"
-                            />
-                          </svg>
-                        )}
-
-                        <span className="outline-runner-content">
-                          Send to<span className="font-semibold mx-1">bottom</span>of queue
-                        </span>
-                      </button>
-                    </div>
-                  </div>
 
                   {/* Manager selection */}
                   {savedManagers.length > 0 && (
@@ -859,80 +836,83 @@ if (finalPosition === "top") {
               >
                 Cancel
               </button>
+
               <button
                 onClick={() => {
                   const e = active.find((a) => a.id === completeEntryId);
-                  const canSendTop = e?.serviceStart ? now - e.serviceStart < 2 * 60 * 1000 : true;
+                  const canSendTop = e?.serviceStart
+                    ? now - e.serviceStart < 2 * 60 * 1000
+                    : true;
 
-                  // only trigger new modal for the "original spot" path under 2 minutes
+                  // only trigger reason modal for the "original spot" path under 2 minutes
                   if (returnPosition === "top" && canSendTop) {
                     setEarlyReasonModalOpen(true);
                     return;
                   }
 
-                  handleConfirmComplete();
+                  void handleConfirmComplete();
                 }}
                 className="flex-1 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
               >
                 Save visit
               </button>
-
             </div>
           </div>
         </div>
       )}
 
       {/* MODAL: Under-2-min reason (opens after Save visit) */}
-        {earlyReasonModalOpen && (
+      {earlyReasonModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setEarlyReasonModalOpen(false)}
+        >
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-            onClick={() => setEarlyReasonModalOpen(false)}
+            className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div
-              className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h2 className="text-lg font-semibold text-slate-100 mb-2">
-                Customer needed...
-              </h2>
+            <h2 className="text-lg font-semibold text-slate-100 mb-2">
+              Customer needed...
+            </h2>
 
-              <p className="text-sm text-slate-300 mb-4">
-                Select where they needed to go.
-              </p>
+            <p className="text-sm text-slate-300 mb-4">
+              Select where they needed to go.
+            </p>
 
-              <div className="grid grid-cols-2 gap-3">
-                {([
+            <div className="grid grid-cols-2 gap-3">
+              {(
+                [
                   ["service", "Service"],
                   ["parts", "Parts"],
                   ["finance", "Finance"],
                   ["other", "Other"],
-                ] as const).map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => {
-                      setEarlyReason(key);
-                      setEarlyReasonModalOpen(false);
-                      handleConfirmComplete(); // continues the save flow
-                    }}
-                    className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm font-medium text-slate-100 hover:bg-slate-700"
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setEarlyReasonModalOpen(false)}
-                className="mt-4 w-full rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
-              >
-                Cancel
-              </button>
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => {
+                    setEarlyReason(key);
+                    setEarlyReasonModalOpen(false);
+                    void handleConfirmComplete(key); // ✅ pass reason directly (no timing bug)
+                  }}
+                  className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm font-medium text-slate-100 hover:bg-slate-700"
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-          </div>
-)}
 
+            <button
+              type="button"
+              onClick={() => setEarlyReasonModalOpen(false)}
+              className="mt-4 w-full rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: Team for active card */}
       {teamEntryId && (
@@ -1010,7 +990,7 @@ if (finalPosition === "top") {
                 Cancel
               </button>
               <button
-                onClick={saveTeamLabel}
+                onClick={() => void saveTeamLabel()}
                 className="flex-1 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
               >
                 Save team
@@ -1031,7 +1011,7 @@ if (finalPosition === "top") {
               <div className="flex gap-2">
                 {isAdminLike(role) && (
                   <button
-                    onClick={clearQueue}
+                    onClick={() => void clearQueue()}
                     className="text-xs text-red-400 hover:text-red-300 disabled:text-slate-500"
                     disabled={queue.length === 0}
                   >
@@ -1062,8 +1042,9 @@ if (finalPosition === "top") {
                         </div>
 
                         {other && (
-                          <span className="inline-flex items-center rounded-full border border-blue-500/40 bg-blue-600/20 px-2 py-0.5 text-[11px] text-blue-200">
-                            TEAM • {other}
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/40 bg-blue-600/20 px-2 py-0.5 text-[11px] text-blue-200">
+                            <Handshake size={12} />
+                            <span className="font-medium">TEAM • {other}</span>
                           </span>
                         )}
                       </div>
@@ -1145,7 +1126,7 @@ if (finalPosition === "top") {
             )}
           </div>
 
-        {isAdminLike(role) && activeTab === "done"
+          {isAdminLike(role) && activeTab === "done"
             ? completed.map((e) => (
                 <div
                   key={e.id}
@@ -1165,9 +1146,7 @@ if (finalPosition === "top") {
 
                     <div className="flex-1">
                       <div className="text-2xl font-semibold text-slate-100">
-                        {e.teamLabel
-                          ? e.teamLabel
-                          : `${e.firstName} ${e.lastName}`}
+                        {e.teamLabel ? e.teamLabel : `${e.firstName} ${e.lastName}`}
                       </div>
 
                       <div className="flex items-center gap-2 mt-0.5">
@@ -1177,19 +1156,29 @@ if (finalPosition === "top") {
                         {joinBadge(e)}
                       </div>
 
-                      {e.earlyReason && (
+                      {e.durationSec ? (
+                        <div className="text-xs text-slate-400 mt-1">
+                          Time with customer:{" "}
+                          <span className="font-medium text-slate-200">
+                            {formatDuration(e.durationSec)}
+                          </span>
+                        </div>
+                      ) : null}
+
+                      {e.earlyReason ? (
                         <div className="text-xs text-slate-300 mt-1">
                           Customer needed:{" "}
-                          <span className="font-medium">{earlyReasonLabel(e.earlyReason)}</span>
+                          <span className="font-medium">
+                            {earlyReasonLabel(e.earlyReason)}
+                          </span>
                         </div>
-                      )}
+                      ) : null}
 
-
-                      {e.note && (
+                      {e.note ? (
                         <div className="text-sm text-slate-200 italic mt-1">
                           {e.note}
                         </div>
-                      )}
+                      ) : null}
 
                       {e.managers?.length ? (
                         <div className="text-xs text-slate-300 mt-1">
@@ -1235,9 +1224,7 @@ if (finalPosition === "top") {
 
                       <div className="flex-1">
                         <div className="text-2xl font-semibold text-slate-100">
-                          {e.teamLabel
-                            ? e.teamLabel
-                            : `${e.firstName} ${e.lastName}`}
+                          {e.teamLabel ? e.teamLabel : `${e.firstName} ${e.lastName}`}
                         </div>
 
                         <div className="flex items-center gap-2 mt-0.5">
@@ -1247,13 +1234,13 @@ if (finalPosition === "top") {
                           {joinBadge(e)}
                         </div>
 
-                        {e.note && (
+                        {e.note ? (
                           <div className="text-sm text-slate-200 italic mt-1">
                             {e.note}
                           </div>
-                        )}
+                        ) : null}
 
-                        {e.serviceStart && (
+                        {e.serviceStart ? (
                           <div className="text-xs text-slate-400 mt-1">
                             Service started at{" "}
                             {new Date(e.serviceStart).toLocaleTimeString([], {
@@ -1261,7 +1248,7 @@ if (finalPosition === "top") {
                               minute: "2-digit",
                             })}
                           </div>
-                        )}
+                        ) : null}
                       </div>
 
                       <div className="flex flex-col items-end gap-3">

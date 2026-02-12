@@ -1,12 +1,8 @@
 import { useState, useEffect } from "react";
 import { db } from "../firebase";
-import {
-  doc,
-  onSnapshot,
-  setDoc,
-  updateDoc,
-  getDoc,
-} from "firebase/firestore";
+import { doc, onSnapshot, setDoc, updateDoc, getDoc } from "firebase/firestore";
+
+export type JoinType = "walk-in" | "appointment" | "appt-phone" | "appt-online";
 
 export type QueueEntry = {
   id: string;
@@ -14,12 +10,16 @@ export type QueueEntry = {
   lastName: string;
   note?: string;
   joinedAt: number;
+
   serviceStart?: number;
-  joinType?: "walk-in" | "appointment";
+  serviceEnd?: number;
+  durationSec?: number;
+
+  joinType?: JoinType;
+
   managers?: string[];
   teamLabel?: string;
 
-  // ✅ added: under-2-minute return reason
   earlyReason?: "service" | "parts" | "finance" | "other";
 };
 
@@ -41,12 +41,12 @@ export function useStoreFeed(storeId: string, region: string) {
 
     const unsub = onSnapshot(ref, (snap) => {
       if (!snap.exists()) return;
-      const d = snap.data() as StoreFeed;
+      const d = snap.data() as Partial<StoreFeed>;
 
       setData({
-        queue: d.queue ?? [],
-        active: d.active ?? [],
-        completed: d.completed ?? [],
+        queue: (d.queue ?? []) as QueueEntry[],
+        active: (d.active ?? []) as QueueEntry[],
+        completed: (d.completed ?? []) as QueueEntry[],
       });
     });
 
@@ -71,9 +71,5 @@ export function useStoreFeed(storeId: string, region: string) {
     await updateDoc(ref, partial);
   };
 
-  return {
-    data,
-    initIfMissing,
-    updateFeed,
-  };
+  return { data, initIfMissing, updateFeed };
 }

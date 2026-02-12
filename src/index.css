@@ -19,7 +19,7 @@
   stroke-width: 2;
   stroke-linecap: round;
 
-  /* runner segment length (out of 1000) */
+  /* runner length (out of 1000) */
   stroke-dasharray: 120 880;
   stroke-dashoffset: 0;
 
@@ -27,7 +27,16 @@
 
   vector-effect: non-scaling-stroke;
   shape-rendering: geometricPrecision;
+
+  /* glow */
+   filter:
+    drop-shadow(0 0 1px rgba(255,255,255,0.18))
+    drop-shadow(0 0 10px rgba(59,130,246,0.14))
+    drop-shadow(0 0 24px rgba(59,130,246,0.08));
+
+
 }
+
 
 @keyframes outlineRun {
   to {

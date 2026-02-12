@@ -1,5 +1,15 @@
 import { createRoot } from "react-dom/client";
-import "./index.css"; // <-- must be here
-import App from "./App";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import "./index.css";
 
-createRoot(document.getElementById("root")!).render(<App />);
+import App from "./App";
+import Manager from "./pages/Manager";
+
+createRoot(document.getElementById("root")!).render(
+  <BrowserRouter>
+    <Routes>
+      <Route path="/" element={<App />} />
+      <Route path="/manager" element={<Manager />} />
+    </Routes>
+  </BrowserRouter>
+);
