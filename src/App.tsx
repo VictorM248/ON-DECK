@@ -721,8 +721,6 @@ function AppInner() {
               >
                 <option value="North">North</option>
                 <option value="South">South</option>
-                <option value="East">East</option>
-                <option value="West">West</option>
               </select>
             </div>
           </div>
