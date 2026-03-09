@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
-import { db } from "../firebase";
 import { doc, onSnapshot, setDoc, updateDoc, getDoc } from "firebase/firestore";
+import { auth, db } from "../lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+
 
 export type JoinType = "walk-in" | "appointment" | "appt-phone" | "appt-online";
 
@@ -36,22 +38,38 @@ export function useStoreFeed(storeId: string, region: string) {
     completed: [],
   });
 
-  useEffect(() => {
-    const ref = doc(db, "stores", storeId, "regions", region);
+ useEffect(() => {
+  const ref = doc(db, "stores", storeId, "regions", region);
 
-    const unsub = onSnapshot(ref, (snap) => {
-      if (!snap.exists()) return;
-      const d = snap.data() as Partial<StoreFeed>;
+  let unsubSnap: (() => void) | null = null;
 
-      setData({
-        queue: (d.queue ?? []) as QueueEntry[],
-        active: (d.active ?? []) as QueueEntry[],
-        completed: (d.completed ?? []) as QueueEntry[],
+  const unsubAuth = onAuthStateChanged(auth, (u) => {
+    if (!u) {
+      if (unsubSnap) unsubSnap();
+      unsubSnap = null;
+      return;
+    }
+
+    if (!unsubSnap) {
+      unsubSnap = onSnapshot(ref, { includeMetadataChanges: false }, (snap) => {
+        if (!snap.exists()) return;
+        const d = snap.data() as Partial<StoreFeed>;
+
+        setData({
+          queue: (d.queue ?? []) as QueueEntry[],
+          active: (d.active ?? []) as QueueEntry[],
+          completed: (d.completed ?? []) as QueueEntry[],
+        });
       });
-    });
+    }
+  });
 
-    return () => unsub();
-  }, [storeId, region]);
+  return () => {
+    unsubAuth();
+    if (unsubSnap) unsubSnap();
+  };
+}, [storeId, region]);
+
 
   const initIfMissing = async () => {
     const ref = doc(db, "stores", storeId, "regions", region);

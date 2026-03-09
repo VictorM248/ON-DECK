@@ -25,7 +25,7 @@ type SavedName = {
   lastName: string;
 };
 
-export default function App() {
+function AppInner() {
   // Role
   const [role, setRole] = useState<Role>(
     () => (localStorage.getItem("role") as Role) ?? "Sales"
@@ -287,7 +287,6 @@ export default function App() {
   };
 
   return (
-    <AuthGate>
       <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-900 to-slate-700 text-slate-100">
         {/* ADD CHOOSER MODAL (Admin only) */}
         {addChooserOpen && isAdminLike(role) && (
@@ -743,6 +742,13 @@ export default function App() {
           />
         </div>
       </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthGate>
+      <AppInner />
     </AuthGate>
   );
 }

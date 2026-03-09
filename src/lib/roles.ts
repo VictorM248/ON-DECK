@@ -1,4 +1,4 @@
-export type Role = "owner" | "admin" | "sales";
+export type Role = "owner" | "admin" | "manager" | "sales";
 
 export function isAdminLike(role?: string) {
   return role === "admin" || role === "owner" || role === "Admin";

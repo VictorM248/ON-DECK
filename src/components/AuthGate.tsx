@@ -28,22 +28,37 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      console.log("AUTH:", {
+      email: u.email,
+      emailVerified: u.emailVerified,
+      uid: u.uid,
+      providerData: u.providerData,
+    });
+    await u.getIdTokenResult(true).then((t) =>
+      console.log("TOKEN:", {
+        email: t.claims.email,
+        email_verified: t.claims.email_verified,
+        provider: t.signInProvider,
+      })
+    );
+
+
       const userRef = doc(db, "users", u.uid);
       const snap = await getDoc(userRef);
 
-      // 1) Ensure the user doc exists with baseline fields
-      if (!snap.exists()) {
-        await setDoc(
-          userRef,
-          {
-            role: "sales",
-            email: u.email ?? "",
-            createdAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
+      // Make sure user doc exists with baseline fields
+        if (!snap.exists()) {
+  await setDoc(
+    userRef,
+    {
+      role: "sales",
+      email: u.email ?? "",
+      createdAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
       } else {
-        // Keep email up to date if it was missing
+        // Keep email up to date if its missing
         const data = snap.data();
         if (!data?.email && u.email) {
           await updateDoc(userRef, { email: u.email });
@@ -56,8 +71,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
       const existingName = (data.displayName ?? "").toString().trim();
 
-      // Prefer Firebase Auth displayName if available (Google profile),
-      // but still allow user to set their own.
+      // Prefer Firebase Auth displayName if available (Google profile), but still allow user to set their own.
       const authName = (u.displayName ?? "").trim();
 
       if (existingName) {
