@@ -13,7 +13,7 @@ type Entry = QueueEntry & { originalQueueIndex?: number };
 type PanelKey = "queue" | "active" | "completed" | "team" | "analytics";
 
 export default function Manager() {
-  const storeId = "store-1";
+  const [storeId, setStoreId] = useState<string>("");
 
   const [region, setRegion] = useState<string>(
     () => localStorage.getItem("managerRegion") ?? "North"
@@ -314,7 +314,7 @@ const ListCard = ({
 
 
   return (
-    <AuthGate>
+    <AuthGate onStoreId={setStoreId}>
       <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-800 text-slate-100">
         <div className="flex">
           {/* LEFT SIDEBAR */}
@@ -403,8 +403,6 @@ const ListCard = ({
                 >
                     <option value="North">North</option>
                     <option value="South">South</option>
-                    <option value="East">East</option>
-                    <option value="West">West</option>
                 </select>
                 </div>
             </div>
