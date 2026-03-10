@@ -36,7 +36,7 @@ export default function Manager() {
     }, [sidebarOpen]);
 
   // Same live feed as the app
-  const { data, initIfMissing } = useStoreFeed(storeId, region);
+  const { data, initIfMissing } = useStoreFeed(storeId || "store-placeholder", region);
 
   useEffect(() => {
     initIfMissing();
@@ -315,7 +315,7 @@ const ListCard = ({
 
   return (
     <AuthGate onStoreId={setStoreId}>
-      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-800 text-slate-100">
+      {!storeId ? null : <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-800 text-slate-100">
         <div className="flex">
           {/* LEFT SIDEBAR */}
             <Sidebar
@@ -491,7 +491,7 @@ const ListCard = ({
             </div>
           </main>
         </div>
-      </div>
+      </div>}
     </AuthGate>
   );
 }
