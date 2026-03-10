@@ -25,7 +25,7 @@ type SavedName = {
   lastName: string;
 };
 
-function AppInner() {
+function AppInner({ storeId }: { storeId: string }) {
   // Role
   const [role, setRole] = useState<Role>(
     () => (localStorage.getItem("role") as Role) ?? "Sales"
@@ -35,7 +35,7 @@ function AppInner() {
   // ADMIN RE-AUTH GATE
   // =========================
   // Require PIN + re-auth again after this window.
-  const ADMIN_UNLOCK_MS = 2 * 60 * 1000; // 2 minutes
+  const ADMIN_UNLOCK_MS = 2 * 60 * 1000; // 2 minutes, duh, math..
   const ADMIN_UNLOCK_KEY = "adminUnlockedUntil";
 
   const [adminUnlockedUntil, setAdminUnlockedUntil] = useState<number>(() => {
@@ -185,7 +185,6 @@ function AppInner() {
   }, [region]);
 
   // Region feed
-  const storeId = "store-1";
   const { initIfMissing } = useStoreFeed(storeId, region);
 
   useEffect(() => {
@@ -744,9 +743,11 @@ function AppInner() {
 }
 
 export default function App() {
+  const [storeId, setStoreId] = useState<string>("");
+
   return (
-    <AuthGate>
-      <AppInner />
+    <AuthGate onStoreId={setStoreId}>
+      <AppInner storeId={storeId} />
     </AuthGate>
   );
 }

@@ -10,7 +10,7 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 
-export function AuthGate({ children }: { children: React.ReactNode }) {
+export function AuthGate({ children, onStoreId }: { children: React.ReactNode, onStoreId?: (storeId: string) => void }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -52,6 +52,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     userRef,
     {
       role: "sales",
+      storeId: "",
       email: u.email ?? "",
       createdAt: serverTimestamp(),
     },
@@ -68,6 +69,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       // 2) Re-read (or use existing snap) to decide if we need a name prompt
       const latestSnap = snap.exists() ? snap : await getDoc(userRef);
       const data = latestSnap.data() || {};
+      const storeId = (data.storeId ?? "").toString().trim();
+      if (onStoreId) onStoreId(storeId);
 
       const existingName = (data.displayName ?? "").toString().trim();
 
