@@ -106,7 +106,10 @@ function AppInner({ storeId }: { storeId: string }) {
 
       // OAuth re-auth with Microsoft provider
       const provider = new OAuthProvider("microsoft.com");
-      provider.setCustomParameters({ prompt: "select_account" });
+        provider.setCustomParameters({
+          tenant: import.meta.env.VITE_MICROSOFT_TENANT_ID as string,
+          prompt: "select_account",
+        });
 
       try {
         await reauthenticateWithPopup(u, provider);
