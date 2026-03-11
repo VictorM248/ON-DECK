@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
 import type { User } from "firebase/auth";
-import { auth, googleProvider, db } from "../lib/firebase";
+import { auth, microsoftProvider, db } from "../lib/firebase";
 import {
   doc,
   getDoc,
@@ -115,9 +115,9 @@ export function AuthGate({ children, onStoreId }: { children: React.ReactNode, o
 
           <button
             className="w-full rounded bg-black text-white py-2"
-            onClick={() => signInWithPopup(auth, googleProvider)}
+            onClick={() => signInWithPopup(auth, microsoftProvider)}
           >
-            Continue with Google
+            Continue with Microsoft
           </button>
         </div>
       </div>

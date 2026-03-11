@@ -10,7 +10,7 @@ import { isAdminLike } from "./lib/roles";
 
 import { auth, db } from "./lib/firebase";
 import {
-  GoogleAuthProvider,
+  OAuthProvider,
   reauthenticateWithPopup,
   reauthenticateWithRedirect,
 } from "firebase/auth";
@@ -104,9 +104,9 @@ function AppInner({ storeId }: { storeId: string }) {
         return;
       }
 
-      // Re-authenticate the SAME signed-in user (admin account)
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account login" });
+      // OAuth re-auth with Microsoft provider
+      const provider = new OAuthProvider("microsoft.com");
+      provider.setCustomParameters({ prompt: "select_account" });
 
       try {
         await reauthenticateWithPopup(u, provider);
@@ -747,7 +747,16 @@ export default function App() {
 
   return (
     <AuthGate onStoreId={setStoreId}>
-      <AppInner storeId={storeId} />
+      {storeId ? (
+        <AppInner storeId={storeId} />
+      ) : (
+        <div className="min-h-screen flex items-center justify-center bg-slate-900 text-slate-100">
+          <div className="text-center space-y-2">
+            <p className="text-lg font-semibold">Account pending setup</p>
+            <p className="text-sm text-slate-400">Your account hasn't been assigned to a store yet. Please contact your administrator.</p>
+          </div>
+        </div>
+      )}
     </AuthGate>
   );
 }
