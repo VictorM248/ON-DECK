@@ -10,22 +10,18 @@ import { Calendar, Handshake, DoorOpen, Phone, Globe } from "lucide-react";
 import type { ReactElement } from "react";
 import RunnerButton from "../components/RunnerButton";
 
-
-// Extend locally so TS knows about originalQueueIndex without changing backend types yet
 type Entry = QueueEntry & { originalQueueIndex?: number };
 type Role = "Sales" | "Admin";
 type JoinType = FeedJoinType;
-
-// early return (under 2 min) reason modal
 type EarlyReason = "service" | "parts" | "finance" | "other";
 
 type QueueProps = {
   role: Role;
   storeId: string;
   region: string;
-  onAddSavedName?: (firstName: string, lastName: string) => void;
+  onAddSavedName?: (firstName: string, lastName: string, email: string) => void;
   registerAddHandler?: (
-    fn: (firstName: string, lastName: string, note: string) => void
+    fn: (firstName: string, lastName: string, email: string, note: string) => void
   ) => void;
   onOpenAddModal?: () => void;
 };
@@ -45,7 +41,6 @@ export default function Queue({
     initIfMissing: initSavedManagers,
   } = useSavedManagersFirestore(storeId);
 
-  // ✅ Init saved managers doc (if your hook uses a doc per store)
   useEffect(() => {
     initSavedManagers();
   }, [initSavedManagers]);
@@ -54,19 +49,15 @@ export default function Queue({
   const active = (data.active ?? []) as Entry[];
   const completed = (data.completed ?? []) as Entry[];
 
-  // Ensure region doc exists
   useEffect(() => {
     initIfMissing();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId, region]);
 
-  // right-side tab (Admin only)
   const [activeTab, setActiveTab] = useState<"with" | "done">("with");
   useEffect(() => {
     if (role !== "Admin" && activeTab === "done") setActiveTab("with");
   }, [role, activeTab]);
 
-  // timer tick
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
@@ -74,10 +65,9 @@ export default function Queue({
   }, []);
 
   // modals
-  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null); // queue -> active (join type)
-  const [doneActiveId, setDoneActiveId] = useState<string | null>(null); // active -> queue (send back)
-  const [completeEntryId, setCompleteEntryId] = useState<string | null>(null); // done -> completed + requeue
-
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const [doneActiveId, setDoneActiveId] = useState<string | null>(null);
+  const [completeEntryId, setCompleteEntryId] = useState<string | null>(null);
   const [earlyReasonModalOpen, setEarlyReasonModalOpen] = useState(false);
   const [earlyReason, setEarlyReason] = useState<EarlyReason | null>(null);
 
@@ -85,14 +75,11 @@ export default function Queue({
   const [teamEntryId, setTeamEntryId] = useState<string | null>(null);
   const [teamLabelInput, setTeamLabelInput] = useState("");
 
-  // manager selection shared
+  // manager selection
   const [selectedManagerIds, setSelectedManagerIds] = useState<string[]>([]);
   const [newManagerName, setNewManagerName] = useState("");
 
-  // where to requeue after "Done"
-  const [returnPosition, setReturnPosition] = useState<"top" | "bottom">(
-    "bottom"
-  );
+  const [returnPosition, setReturnPosition] = useState<"top" | "bottom">("bottom");
 
   // ---- Firestore write helper ----
   const stripUndefined = <T,>(obj: T): T =>
@@ -105,7 +92,6 @@ export default function Queue({
         active: next.active,
         completed: next.completed,
       });
-
       try {
         await updateFeed(cleaned);
       } catch (err) {
@@ -122,15 +108,12 @@ export default function Queue({
   const initials = (e: Entry) =>
     `${e.firstName?.[0] ?? ""}${e.lastName?.[0] ?? ""}`.toUpperCase();
 
-  // Overlapping avatar bubbles when teamLabel exists
   const avatarInitialsList = (e: Entry): string[] => {
     if (!e.teamLabel) return [initials(e)];
-
     const parts = e.teamLabel
       .split("&")
       .map((p) => p.trim())
       .filter(Boolean);
-
     const codes: string[] = [];
     for (let i = 0; i < Math.min(parts.length, 2); i++) {
       const words = parts[i].split(/\s+/).filter(Boolean);
@@ -153,7 +136,6 @@ export default function Queue({
     return `${s}s`;
   };
 
-  // reason label for early return
   const earlyReasonLabel = (r?: Entry["earlyReason"]) => {
     if (!r) return "";
     if (r === "service") return "Service";
@@ -178,13 +160,10 @@ export default function Queue({
     return `${m}m ${s.toString().padStart(2, "0")}s`;
   };
 
-  // joinType badge (supports legacy "appointment")
   const joinBadge = (e: Entry) => {
     if (!e.joinType) return null;
-
     const jt: JoinType =
       e.joinType === ("appointment" as any) ? ("appt-phone" as const) : e.joinType;
-
     const map: Record<
       "walk-in" | "appt-phone" | "appt-online",
       { label: string; icon: ReactElement }
@@ -193,12 +172,10 @@ export default function Queue({
       "appt-phone": { label: "Appt (Phone)", icon: <Phone size={16} /> },
       "appt-online": { label: "Appt (Online)", icon: <Globe size={16} /> },
     };
-
     const cfg = map[jt as "walk-in" | "appt-phone" | "appt-online"] ?? {
       label: "Appointment",
       icon: <Calendar size={16} />,
     };
-
     return (
       <span className="ml-2 inline-flex items-center gap-2 rounded-full bg-slate-700 px-3 py-1 text-xs text-slate-100 shadow-sm">
         <span className="text-base">{cfg.icon}</span>
@@ -207,7 +184,6 @@ export default function Queue({
     );
   };
 
-  // team badge info for queue list: "TEAM • <other>"
   const parseTeamMembers = (teamLabel?: string) => {
     if (!teamLabel) return [];
     return teamLabel
@@ -219,28 +195,33 @@ export default function Queue({
   const teamedWith = (rep: Entry): string | null => {
     const repName = fullName(rep).toLowerCase();
     if (!repName) return null;
-
     for (const a of active) {
       if (!a.teamLabel) continue;
-
       const members = parseTeamMembers(a.teamLabel);
       const lower = members.map((m) => m.toLowerCase());
       if (!lower.includes(repName)) continue;
-
       const other = members.find((m) => m.toLowerCase() !== repName);
       return other ?? "Team";
     }
-
     return null;
   };
 
-  // Add from App modal (Firestore write)
+  // Add from modal (now includes email, required)
   const addFromModal = useCallback(
-    async (firstName: string, lastName: string, note: string) => {
+    async (firstName: string, lastName: string, email: string, note: string) => {
       const fn = firstName.trim();
       const ln = lastName.trim();
+      const em = email.trim().toLowerCase();
       const nt = note.trim();
-      if (!fn) return;
+
+      if (!fn || !em) return;
+
+      // basic email format check
+      const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em);
+      if (!emailValid) {
+        alert("Please enter a valid email address.");
+        return;
+      }
 
       const nextQueue: Entry[] = [
         ...queue,
@@ -248,13 +229,14 @@ export default function Queue({
           id: crypto.randomUUID(),
           firstName: fn,
           lastName: ln,
+          email: em,
           note: nt,
           joinedAt: Date.now(),
         },
       ];
 
       await setLists({ queue: nextQueue, active, completed });
-      onAddSavedName?.(fn, ln);
+      onAddSavedName?.(fn, ln, em);
     },
     [queue, active, completed, setLists, onAddSavedName]
   );
@@ -277,20 +259,16 @@ export default function Queue({
     }
   };
 
-  // queue -> active join type modal
   const openJoinTypeModal = (entryId: string) => setSelectedEntryId(entryId);
 
   const confirmMoveWithType = async (type: JoinType) => {
     if (!selectedEntryId) return;
-
     const idx = queue.findIndex((e) => e.id === selectedEntryId);
     const entry = queue[idx];
-
     if (!entry) {
       setSelectedEntryId(null);
       return;
     }
-
     const nextQueue = queue.filter((e) => e.id !== selectedEntryId);
     const nextActive: Entry[] = [
       ...active,
@@ -301,15 +279,12 @@ export default function Queue({
         originalQueueIndex: idx,
       },
     ];
-
     await setLists({ queue: nextQueue, active: nextActive, completed });
     setSelectedEntryId(null);
   };
 
-  // open "Send back to queue" modal (active -> queue)
   const openDoneModal = (entryId: string) => {
     setDoneActiveId(entryId);
-
     const entry = active.find((e) => e.id === entryId);
     if (entry?.managers?.length) {
       const ids = savedManagers
@@ -322,7 +297,6 @@ export default function Queue({
     setNewManagerName("");
   };
 
-  // open "Done" modal (log managers + requeue + completed)
   const openCompleteModal = (entryId: string) => {
     setCompleteEntryId(entryId);
     setSelectedManagerIds([]);
@@ -340,7 +314,6 @@ export default function Queue({
     setEarlyReason(null);
   };
 
-  // team modal open/close + save
   const openTeamModal = (entryId: string) => {
     setTeamEntryId(entryId);
     const entry = active.find((e) => e.id === entryId);
@@ -354,18 +327,15 @@ export default function Queue({
 
   const saveTeamLabel = async () => {
     if (!teamEntryId) return;
-
     const nextActive = active.map((e) =>
       e.id === teamEntryId
         ? { ...e, teamLabel: teamLabelInput.trim() || undefined }
         : e
     );
-
     await setLists({ queue, active: nextActive, completed });
     closeTeamModal();
   };
 
-  // toggle manager selection (max 3)
   const toggleManagerSelection = (id: string) => {
     setSelectedManagerIds((prev) => {
       if (prev.includes(id)) return prev.filter((x) => x !== id);
@@ -374,34 +344,27 @@ export default function Queue({
     });
   };
 
-  // ✅ DONE: log managers, add to Completed, and requeue
-  // IMPORTANT: reason is passed in to avoid React state timing issues.
   const handleConfirmComplete = async (reason?: EarlyReason) => {
     if (!completeEntryId) return;
-
     const entry = active.find((e) => e.id === completeEntryId);
     if (!entry) {
       closeCompleteModal();
       return;
     }
 
-    // Build selected IDs first (so typed name gets an ID and can be "selected")
     let selectedIds = [...selectedManagerIds];
-
     const nm = newManagerName.trim();
     let typed: { id: string; name: string } | null = null;
 
     if (nm) {
       if (isAdminLike(role)) {
-        typed = await addManager(nm); // Admin can persist
+        typed = await addManager(nm);
       }
       if (typed && !selectedIds.includes(typed.id)) selectedIds.push(typed.id);
     }
 
-    // max 3
     if (selectedIds.length > 3) selectedIds = selectedIds.slice(0, 3);
 
-    // Build id->name map (include typed even before snapshot refresh)
     const idToName = new Map<string, string>();
     for (const m of savedManagers) idToName.set(m.id, m.name);
     if (typed) idToName.set(typed.id, typed.name);
@@ -412,7 +375,6 @@ export default function Queue({
 
     setSelectedManagerIds(selectedIds);
 
-    // save completed entry
     const end = Date.now();
     const durationSec = entry.serviceStart
       ? Math.max(0, Math.round((end - entry.serviceStart) / 1000))
@@ -426,7 +388,6 @@ export default function Queue({
       durationSec,
     };
 
-    // 2-minute rule for top (keep as-is for this flow)
     const canSendTop = entry.serviceStart
       ? now - entry.serviceStart < 2 * 60 * 1000
       : true;
@@ -434,11 +395,11 @@ export default function Queue({
     const finalPosition: "top" | "bottom" =
       returnPosition === "top" && canSendTop ? "top" : "bottom";
 
-    // requeue entry (new id + new join time; clear old note/team)
     const requeuedEntry: Entry = {
       id: crypto.randomUUID(),
       firstName: entry.firstName,
       lastName: entry.lastName,
+      email: entry.email,
       note: "",
       joinedAt: Date.now(),
       serviceStart: undefined,
@@ -454,26 +415,17 @@ export default function Queue({
     const nextCompleted = [...completed, completedEntry];
 
     let nextQueue: Entry[];
-
     if (finalPosition === "top") {
-      // "top" means: original spot in queue
       const originalIndex =
         typeof entry.originalQueueIndex === "number" ? entry.originalQueueIndex : 0;
-
       const safeIndex = Math.max(0, Math.min(originalIndex, queue.length));
-
       nextQueue = [...queue];
       nextQueue.splice(safeIndex, 0, requeuedEntry);
     } else {
       nextQueue = [...queue, requeuedEntry];
     }
 
-    await setLists({
-      queue: nextQueue,
-      active: nextActive,
-      completed: nextCompleted,
-    });
-
+    await setLists({ queue: nextQueue, active: nextActive, completed: nextCompleted });
     closeCompleteModal();
   };
 
@@ -485,10 +437,8 @@ export default function Queue({
     });
   };
 
-  // REPURPOSED: send active back to ORIGINAL queue spot (only allowed under 2 minutes in UI)
   const moveActiveBackToQueueOriginal = async () => {
     if (!doneActiveId) return;
-
     const entry = active.find((e) => e.id === doneActiveId);
     if (!entry) {
       setDoneActiveId(null);
@@ -496,7 +446,6 @@ export default function Queue({
     }
 
     let selectedIds = [...selectedManagerIds];
-
     const nm = newManagerName.trim();
     let typed: { id: string; name: string } | null = null;
 
@@ -534,7 +483,6 @@ export default function Queue({
     };
 
     const nextActive = active.filter((e) => e.id !== doneActiveId);
-
     const nextQueue = [...queue];
     nextQueue.splice(safeIndex, 0, cleaned);
 
@@ -560,7 +508,6 @@ export default function Queue({
             <h2 className="text-lg font-semibold mb-2 text-slate-100">
               How is this guest being served?
             </h2>
-
             {(() => {
               const e = queue.find((q) => q.id === selectedEntryId);
               return (
@@ -569,7 +516,6 @@ export default function Queue({
                 </p>
               );
             })()}
-
             <div className="flex flex-col gap-3">
               <button
                 onClick={() => void confirmMoveWithType("walk-in")}
@@ -578,7 +524,6 @@ export default function Queue({
                 <DoorOpen size={16} />
                 <span className="font-medium">Walk-in</span>
               </button>
-
               <button
                 onClick={() => void confirmMoveWithType("appt-phone")}
                 className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
@@ -586,7 +531,6 @@ export default function Queue({
                 <Phone size={16} />
                 <span className="font-medium">Appointment (Phone)</span>
               </button>
-
               <button
                 onClick={() => void confirmMoveWithType("appt-online")}
                 className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
@@ -595,7 +539,6 @@ export default function Queue({
                 <span className="font-medium">Appointment (Online)</span>
               </button>
             </div>
-
             <button
               onClick={() => setSelectedEntryId(null)}
               className="mt-4 w-full rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
@@ -623,7 +566,6 @@ export default function Queue({
             <h2 className="text-lg font-semibold mb-2 text-slate-100">
               Move back to queue?
             </h2>
-
             {(() => {
               const e = active.find((a) => a.id === doneActiveId);
               return (
@@ -632,14 +574,11 @@ export default function Queue({
                 </p>
               );
             })()}
-
             {(() => {
               const e = active.find((a) => a.id === doneActiveId);
               if (!e) return null;
-
               const canSendTop =
                 e.serviceStart ? now - e.serviceStart < 2 * 60 * 1000 : true;
-
               return (
                 <div className="flex flex-col gap-4">
                   <div className="flex flex-col gap-3">
@@ -649,23 +588,19 @@ export default function Queue({
                         className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
                       >
                         Send back to{" "}
-                        <span className="font-semibold">original spot</span> in
-                        queue
+                        <span className="font-semibold">original spot</span> in queue
                       </button>
                     )}
-
                     {!canSendTop && (
                       <p className="text-xs text-slate-400 italic">
                         This option is only available within the first 2 minutes.
                       </p>
                     )}
                   </div>
-
                   <div className="mt-2">
                     <p className="text-xs text-slate-400 mb-1">
                       Who helped you with this visit? (optional)
                     </p>
-
                     {savedManagers.length > 0 ? (
                       <div className="flex flex-wrap gap-2 mb-2">
                         {savedManagers.map((m) => {
@@ -691,7 +626,6 @@ export default function Queue({
                         No helpers saved yet. You can add one below.
                       </p>
                     )}
-
                     <input
                       value={newManagerName}
                       onChange={(e) => setNewManagerName(e.target.value)}
@@ -703,7 +637,6 @@ export default function Queue({
                 </div>
               );
             })()}
-
             <button
               onClick={() => {
                 setDoneActiveId(null);
@@ -718,7 +651,7 @@ export default function Queue({
         </div>
       )}
 
-      {/* MODAL: DONE (log managers + send to top/bottom + completed + requeue) */}
+      {/* MODAL: DONE */}
       {completeEntryId && (
         <div
           className="fixed inset-0 z-40 flex items-center justify-center bg-black/50"
@@ -731,7 +664,6 @@ export default function Queue({
             <h2 className="text-lg font-semibold mb-2 text-slate-100">
               Log managers for this visit
             </h2>
-
             {(() => {
               const e = active.find((a) => a.id === completeEntryId);
               return (
@@ -740,52 +672,41 @@ export default function Queue({
                 </p>
               );
             })()}
-
             {(() => {
               const e = active.find((a) => a.id === completeEntryId);
               if (!e) return null;
-
               const canSendTop =
                 e.serviceStart ? now - e.serviceStart < 2 * 60 * 1000 : true;
-
               return (
                 <>
-                  {/* Queue position selection */}
-                  {/* Queue position selection */}
-<div className="flex flex-col gap-2">
-  {canSendTop && (
-    <RunnerButton
-      selected={returnPosition === "top"}
-      onClick={() => setReturnPosition("top")}
-      className={`rounded-xl px-4 py-2 text-sm flex items-center justify-center text-center
-        ${
-          returnPosition === "top"
-            ? "bg-slate-800 text-slate-100"
-            : "border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
-        }`}
-      gradientId="runnerGradientTop"
-    >
-      Send to <span className="font-semibold mx-1">original</span> spot in queue
-    </RunnerButton>
-  )}
-
-  <RunnerButton
-    selected={returnPosition === "bottom"}
-    onClick={() => setReturnPosition("bottom")}
-    className={`rounded-xl px-4 py-2 text-sm flex items-center justify-center text-center
-      ${
-        returnPosition === "bottom"
-          ? "bg-slate-800 text-slate-100"
-          : "border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
-      }`}
-    gradientId="runnerGradientBottom"
-  >
-    Send to <span className="font-semibold mx-1">bottom</span> of queue
-  </RunnerButton>
-</div>
-
-
-                  {/* Manager selection */}
+                  <div className="flex flex-col gap-2">
+                    {canSendTop && (
+                      <RunnerButton
+                        selected={returnPosition === "top"}
+                        onClick={() => setReturnPosition("top")}
+                        className={`rounded-xl px-4 py-2 text-sm flex items-center justify-center text-center ${
+                          returnPosition === "top"
+                            ? "bg-slate-800 text-slate-100"
+                            : "border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
+                        }`}
+                        gradientId="runnerGradientTop"
+                      >
+                        Send to <span className="font-semibold mx-1">original</span> spot in queue
+                      </RunnerButton>
+                    )}
+                    <RunnerButton
+                      selected={returnPosition === "bottom"}
+                      onClick={() => setReturnPosition("bottom")}
+                      className={`rounded-xl px-4 py-2 text-sm flex items-center justify-center text-center ${
+                        returnPosition === "bottom"
+                          ? "bg-slate-800 text-slate-100"
+                          : "border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"
+                      }`}
+                      gradientId="runnerGradientBottom"
+                    >
+                      Send to <span className="font-semibold mx-1">bottom</span> of queue
+                    </RunnerButton>
+                  </div>
                   {savedManagers.length > 0 && (
                     <div className="mb-3">
                       <p className="text-xs text-slate-400">
@@ -812,7 +733,6 @@ export default function Queue({
                       </div>
                     </div>
                   )}
-
                   <div className="mb-4">
                     <p className="text-xs text-slate-400 mb-1">
                       Add another manager (optional):
@@ -828,7 +748,6 @@ export default function Queue({
                 </>
               );
             })()}
-
             <div className="flex gap-2">
               <button
                 onClick={closeCompleteModal}
@@ -836,20 +755,16 @@ export default function Queue({
               >
                 Cancel
               </button>
-
               <button
                 onClick={() => {
                   const e = active.find((a) => a.id === completeEntryId);
                   const canSendTop = e?.serviceStart
                     ? now - e.serviceStart < 2 * 60 * 1000
                     : true;
-
-                  // only trigger reason modal for the "original spot" path under 2 minutes
                   if (returnPosition === "top" && canSendTop) {
                     setEarlyReasonModalOpen(true);
                     return;
                   }
-
                   void handleConfirmComplete();
                 }}
                 className="flex-1 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
@@ -861,7 +776,7 @@ export default function Queue({
         </div>
       )}
 
-      {/* MODAL: Under-2-min reason (opens after Save visit) */}
+      {/* MODAL: Under-2-min reason */}
       {earlyReasonModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
@@ -874,11 +789,9 @@ export default function Queue({
             <h2 className="text-lg font-semibold text-slate-100 mb-2">
               Customer needed...
             </h2>
-
             <p className="text-sm text-slate-300 mb-4">
               Select where they needed to go.
             </p>
-
             <div className="grid grid-cols-2 gap-3">
               {(
                 [
@@ -894,7 +807,7 @@ export default function Queue({
                   onClick={() => {
                     setEarlyReason(key);
                     setEarlyReasonModalOpen(false);
-                    void handleConfirmComplete(key); // ✅ pass reason directly (no timing bug)
+                    void handleConfirmComplete(key);
                   }}
                   className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm font-medium text-slate-100 hover:bg-slate-700"
                 >
@@ -902,7 +815,6 @@ export default function Queue({
                 </button>
               ))}
             </div>
-
             <button
               type="button"
               onClick={() => setEarlyReasonModalOpen(false)}
@@ -927,23 +839,17 @@ export default function Queue({
             <h2 className="text-lg font-semibold mb-2 text-slate-100">
               Set team for this visit
             </h2>
-
             {(() => {
               const entry = active.find((a) => a.id === teamEntryId);
               if (!entry) {
-                return (
-                  <p className="text-sm text-slate-300 mb-4">Selected guest</p>
-                );
+                return <p className="text-sm text-slate-300 mb-4">Selected guest</p>;
               }
-
-              const teammates = queue; // reps currently in queue
-
+              const teammates = queue;
               return (
                 <>
                   <p className="text-sm text-slate-300 mb-4">
                     {entry.firstName} {entry.lastName}
                   </p>
-
                   <div className="mb-4">
                     <p className="text-xs text-slate-400 mb-1">
                       Who is working this guest? (optional)
@@ -955,7 +861,6 @@ export default function Queue({
                       className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-blue-500"
                     />
                   </div>
-
                   {teammates.length > 0 && (
                     <div className="mb-4">
                       <p className="text-xs text-slate-400 mb-2">
@@ -981,7 +886,6 @@ export default function Queue({
                 </>
               );
             })()}
-
             <div className="flex gap-2">
               <button
                 onClick={closeTeamModal}
@@ -1007,7 +911,6 @@ export default function Queue({
           <div className="rounded-2xl border border-slate-700 bg-slate-900 p-2 shadow-lg">
             <div className="px-3 py-2 flex items-center justify-between text-sm font-semibold text-slate-200">
               <span>In Queue ({queue.length} waiting)</span>
-
               <div className="flex gap-2">
                 {isAdminLike(role) && (
                   <button
@@ -1023,7 +926,6 @@ export default function Queue({
 
             {queue.map((e, i) => {
               const other = teamedWith(e);
-
               return (
                 <div
                   key={e.id}
@@ -1034,13 +936,11 @@ export default function Queue({
                     <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white text-xs font-semibold">
                       {initials(e)}
                     </div>
-
                     <div>
                       <div className="flex items-center gap-2">
                         <div className="font-medium text-slate-100">
                           {i + 1}. {e.firstName} {e.lastName}
                         </div>
-
                         {other && (
                           <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/40 bg-blue-600/20 px-2 py-0.5 text-[11px] text-blue-200">
                             <Handshake size={12} />
@@ -1048,13 +948,9 @@ export default function Queue({
                           </span>
                         )}
                       </div>
-
                       {e.note && (
-                        <div className="text-xs text-slate-300 italic">
-                          {e.note}
-                        </div>
+                        <div className="text-xs text-slate-300 italic">{e.note}</div>
                       )}
-
                       {e.joinedAt && (
                         <div className="text-[11px] text-slate-400">
                           Joined at {formatJoined(e.joinedAt)}
@@ -1062,7 +958,6 @@ export default function Queue({
                       )}
                     </div>
                   </div>
-
                   {isAdminLike(role) && (
                     <button
                       onClick={(ev) => {
@@ -1097,7 +992,6 @@ export default function Queue({
                   >
                     With customers
                   </button>
-
                   <button
                     type="button"
                     onClick={() => setActiveTab("done")}
@@ -1110,7 +1004,6 @@ export default function Queue({
                     Completed
                   </button>
                 </div>
-
                 <div className="text-xs text-slate-400">
                   {activeTab === "with"
                     ? `With customers (${active.length})`
@@ -1143,19 +1036,16 @@ export default function Queue({
                         </div>
                       ))}
                     </div>
-
                     <div className="flex-1">
                       <div className="text-2xl font-semibold text-slate-100">
                         {e.teamLabel ? e.teamLabel : `${e.firstName} ${e.lastName}`}
                       </div>
-
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-sm text-slate-300">
                           Customer visit completed
                         </span>
                         {joinBadge(e)}
                       </div>
-
                       {e.durationSec ? (
                         <div className="text-xs text-slate-400 mt-1">
                           Time with customer:{" "}
@@ -1164,7 +1054,6 @@ export default function Queue({
                           </span>
                         </div>
                       ) : null}
-
                       {e.earlyReason ? (
                         <div className="text-xs text-slate-300 mt-1">
                           Customer needed:{" "}
@@ -1173,13 +1062,11 @@ export default function Queue({
                           </span>
                         </div>
                       ) : null}
-
                       {e.note ? (
                         <div className="text-sm text-slate-200 italic mt-1">
                           {e.note}
                         </div>
                       ) : null}
-
                       {e.managers?.length ? (
                         <div className="text-xs text-slate-300 mt-1">
                           Managers:{" "}
@@ -1189,7 +1076,6 @@ export default function Queue({
                         </div>
                       ) : null}
                     </div>
-
                     <button
                       onClick={() => void removeCompletedEntry(e.id)}
                       className="text-xs text-red-400 hover:text-red-300 ml-3"
@@ -1203,7 +1089,6 @@ export default function Queue({
                 const minutes = e.serviceStart
                   ? Math.floor((now - e.serviceStart) / 60000)
                   : 0;
-
                 return (
                   <div
                     key={e.id}
@@ -1221,25 +1106,21 @@ export default function Queue({
                           </div>
                         ))}
                       </div>
-
                       <div className="flex-1">
                         <div className="text-2xl font-semibold text-slate-100">
                           {e.teamLabel ? e.teamLabel : `${e.firstName} ${e.lastName}`}
                         </div>
-
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-sm text-slate-300">
                             Currently with guest
                           </span>
                           {joinBadge(e)}
                         </div>
-
                         {e.note ? (
                           <div className="text-sm text-slate-200 italic mt-1">
                             {e.note}
                           </div>
                         ) : null}
-
                         {e.serviceStart ? (
                           <div className="text-xs text-slate-400 mt-1">
                             Service started at{" "}
@@ -1250,12 +1131,10 @@ export default function Queue({
                           </div>
                         ) : null}
                       </div>
-
                       <div className="flex flex-col items-end gap-3">
                         <div className="text-lg tabular-nums text-slate-100">
                           {formatSince(e.serviceStart)}
                         </div>
-
                         <div className="flex flex-col gap-2">
                           <button
                             onClick={(ev) => {
@@ -1266,7 +1145,6 @@ export default function Queue({
                           >
                             Done
                           </button>
-
                           <button
                             onClick={(ev) => {
                               ev.stopPropagation();
@@ -1279,7 +1157,6 @@ export default function Queue({
                         </div>
                       </div>
                     </div>
-
                     <div className="mt-4 w-full h-2 bg-slate-800 rounded-full overflow-hidden">
                       <div
                         className="h-full transition-all"

@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { AuthGate } from "../components/AuthGate";
 import { useStoreFeed, type QueueEntry } from "../lib/useStoreFeed";
 import { Sidebar, SidebarItem } from "../components/Sidebar";
-import {List, Users, CheckCircle, Handshake, BarChart3, DoorOpen, Phone, Globe, Timer,
-} from "lucide-react";
-
+import { List, Users, CheckCircle, Handshake, BarChart3, DoorOpen, Phone, Globe, Timer, UserCog, UserX,} from "lucide-react";
+import { auth, db } from "../lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { collection, getDocs, updateDoc, deleteDoc, doc, getDoc } from "firebase/firestore";
 
 
 
 type Entry = QueueEntry & { originalQueueIndex?: number };
 
-type PanelKey = "queue" | "active" | "completed" | "team" | "analytics";
+type PanelKey = "queue" | "active" | "completed" | "team" | "analytics" | "users" | "unassigned";
 
 export default function Manager() {
   const [storeId, setStoreId] = useState<string>("");
@@ -164,6 +165,117 @@ const barStyle = (mins: number) => {
   return { width, background };
 };
 
+// User management
+  type UserRecord = {
+    uid: string;
+    email: string;
+    displayName: string;
+    role: string;
+    storeId: string;
+  }; 
+
+  const [users, setUsers] = useState<UserRecord[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [currentUserRole, setCurrentUserRole] = useState<string>("");
+  const [currentUserStoreId, setCurrentUserStoreId] = useState<string>("");
+
+  // Fetch current user's role and storeId
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      if (!u) return;
+      getDoc(doc(db, "users", u.uid)).then((snap) => {
+        setCurrentUserRole(snap.data()?.role ?? "");
+        setCurrentUserStoreId(snap.data()?.storeId ?? "");
+      });
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const isOwner = currentUserRole === "owner";
+  const isAdminOrOwner = currentUserRole === "admin" || currentUserRole === "owner";
+
+  const fetchUsers = useCallback(async () => {
+    if (!isAdminOrOwner) return;
+    setUsersLoading(true);
+    const snap = await getDocs(collection(db, "users"));
+    const list: UserRecord[] = snap.docs.map((d) => ({
+      uid: d.id,
+      email: d.data().email ?? "",
+      displayName: d.data().displayName ?? "",
+      role: d.data().role ?? "sales",
+      storeId: d.data().storeId ?? "",
+    }));
+    setUsers(list);
+    setUsersLoading(false);
+  }, [isAdminOrOwner]);
+
+  useEffect(() => {
+    if (panel === "users" || panel === "unassigned") {
+      fetchUsers();
+    }
+  }, [panel, fetchUsers]);
+
+  async function updateUser(uid: string, field: "role" | "storeId", value: string) {
+    await updateDoc(doc(db, "users", uid), { [field]: value });
+    setUsers((prev) =>
+      prev.map((u) => (u.uid === uid ? { ...u, [field]: value } : u))
+    );
+  }
+
+  async function removeUser(uid: string) {
+    if (!confirm("Remove this user? They will lose all access.")) return;
+    await deleteDoc(doc(db, "users", uid));
+    setUsers((prev) => prev.filter((u) => u.uid !== uid));
+  }
+
+  // Owner sees all assigned users, admin sees only their store
+  const assignedUsers = useMemo(() => {
+    if (isOwner) return users.filter((u) => u.storeId !== "" && u.role !== "owner" && u.uid !== auth.currentUser?.uid);
+    return users.filter((u) => u.storeId === currentUserStoreId && u.role !== "owner" && u.uid !== auth.currentUser?.uid);
+  }, [users, isOwner, currentUserStoreId]);
+
+  // Both owner and admin can see unassigned
+  const unassignedUsers = useMemo(
+    () => users.filter((u) => u.storeId === "" && u.uid !== auth.currentUser?.uid),
+    [users]
+  );
+
+  // What stores can this user assign to
+  const assignableStores = isOwner
+    ? [
+        { value: "store-toyota", label: "Toyota" },
+        { value: "store-subaru", label: "Subaru" },
+        { value: "store-hyundai", label: "Hyundai" },
+      ]
+    : [
+        {
+          value: currentUserStoreId,
+          label:
+            currentUserStoreId === "store-toyota"
+              ? "Toyota"
+              : currentUserStoreId === "store-subaru"
+              ? "Subaru"
+              : "Hyundai",
+        },
+      ];
+
+  // What roles can this user assign
+  const assignableRoles = isOwner
+    ? ["sales", "manager", "admin"]
+    : ["sales", "manager"];
+
+  // Can this user remove a target user
+  function canRemove(target: UserRecord) {
+    if (isOwner) return true;
+    return target.storeId === currentUserStoreId;
+  }
+
+  // Can this user change the store of a target user
+  function canChangeStore(target: UserRecord) {
+    if (isOwner) return true;
+    // Admin can only assign unassigned users to their store
+    return target.storeId === "";
+  }
 
   const matchSearch = (e: Entry) => {
     const q = search.trim().toLowerCase();
@@ -356,6 +468,28 @@ const ListCard = ({
                 }}
             />
 
+            {isAdminOrOwner && (
+              <>
+                <li className="my-2">
+                  <div className="h-px bg-slate-800/80 w-full" />
+                </li>
+                <SidebarItem
+                  icon={<UserCog size={18} />}
+                  text="All Users"
+                  count={assignedUsers.length}
+                  active={panel === "users"}
+                  onClick={() => { setPanel("users"); setSidebarOpen(true); }}
+                />
+                <SidebarItem
+                  icon={<UserX size={18} />}
+                  text="Unassigned"
+                  count={unassignedUsers.length}
+                  active={panel === "unassigned"}
+                  onClick={() => { setPanel("unassigned"); setSidebarOpen(true); }}
+                />
+              </>
+            )}
+
             <li className="my-2">
                 <div className="h-px bg-slate-800/80 w-full" />
             </li>
@@ -469,6 +603,91 @@ const ListCard = ({
                   rows={filteredCompleted}
                   rightMeta={(e) => (e.managers?.length ? `${e.managers.length} mgr` : "")}
                 />
+              )}
+
+              {(panel === "users" || panel === "unassigned") && isAdminOrOwner && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-800 font-semibold text-slate-200 flex items-center justify-between">
+                    <span>{panel === "users" ? "All Users" : "Unassigned Users"}</span>
+                    <button
+                      onClick={fetchUsers}
+                      className="text-xs text-slate-400 hover:text-slate-200 border border-slate-700 rounded-lg px-2 py-1"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+
+                  {usersLoading ? (
+                    <div className="px-4 py-4 text-sm text-slate-400">Loading...</div>
+                  ) : (
+                    <div className="divide-y divide-slate-800">
+                      {(panel === "users" ? assignedUsers : unassignedUsers).length === 0 ? (
+                        <div className="px-4 py-4 text-sm text-slate-400">None</div>
+                      ) : (
+                        (panel === "users" ? assignedUsers : unassignedUsers).map((u) => (
+                          <div key={u.uid} className="px-4 py-3 flex flex-col gap-2">
+                            {/* Name + email */}
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white text-xs font-semibold">
+                                {(u.displayName?.[0] ?? u.email?.[0] ?? "?").toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium text-slate-100 truncate">
+                                  {u.displayName || "No name set"}
+                                </div>
+                                <div className="text-xs text-slate-400 truncate">{u.email}</div>
+                              </div>
+                              {/* Store badge */}
+                              {u.storeId && (
+                                <span className="ml-auto text-xs rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-slate-300">
+                                  {u.storeId === "store-toyota" ? "Toyota" : u.storeId === "store-subaru" ? "Subaru" : "Hyundai"}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Controls */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {/* Store selector */}
+                              <select
+                                value={u.storeId}
+                                disabled={!canChangeStore(u)}
+                                onChange={(e) => updateUser(u.uid, "storeId", e.target.value)}
+                                className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-100 outline-none disabled:opacity-40"
+                              >
+                                <option value="">— No store —</option>
+                                {assignableStores.map((s) => (
+                                  <option key={s.value} value={s.value}>{s.label}</option>
+                                ))}
+                              </select>
+
+                              {/* Role selector */}
+                              <select
+                                value={u.role}
+                                disabled={!canRemove(u)}
+                                onChange={(e) => updateUser(u.uid, "role", e.target.value)}
+                                className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-100 outline-none disabled:opacity-40"
+                              >
+                                {assignableRoles.map((r) => (
+                                  <option key={r} value={r}>{r}</option>
+                                ))}
+                              </select>
+
+                              {/* Remove button */}
+                              {canRemove(u) && (
+                                <button
+                                  onClick={() => removeUser(u.uid)}
+                                  className="ml-auto text-xs text-red-400 hover:text-red-300 border border-red-900 rounded-lg px-2 py-1"
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
 
               {panel === "team" && (

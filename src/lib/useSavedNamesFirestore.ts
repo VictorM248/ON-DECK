@@ -2,12 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { doc, getDoc, onSnapshot, runTransaction, setDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
-export type SavedName = { id: string; firstName: string; lastName: string };
+export type SavedName = { id: string; firstName: string; lastName: string; email: string };
 type SavedNamesDoc = { names: SavedName[] };
 
 export function useSavedNamesFirestore(storeId: string) {
   const ref = useMemo(() => doc(db, "stores", storeId, "meta", "savedNames"), [storeId]);
-
   const [savedNames, setSavedNames] = useState<SavedName[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -22,7 +21,6 @@ export function useSavedNamesFirestore(storeId: string) {
       setSavedNames(data.names ?? []);
       setLoading(false);
     });
-
     return () => unsub();
   }, [ref]);
 
@@ -32,10 +30,11 @@ export function useSavedNamesFirestore(storeId: string) {
   }, [ref]);
 
   const addSavedName = useCallback(
-    async (firstName: string, lastName: string) => {
+    async (firstName: string, lastName: string, email: string) => {
       const fn = firstName.trim().replace(/\s+/g, " ");
       const ln = lastName.trim().replace(/\s+/g, " ");
-      if (!fn) return null;
+      const em = email.trim().toLowerCase();
+      if (!fn || !em) return null;
 
       return await runTransaction(db, async (tx) => {
         const snap = await tx.get(ref);
@@ -50,7 +49,7 @@ export function useSavedNamesFirestore(storeId: string) {
         );
         if (exists) return exists;
 
-        const next: SavedName = { id: crypto.randomUUID(), firstName: fn, lastName: ln };
+        const next: SavedName = { id: crypto.randomUUID(), firstName: fn, lastName: ln, email: em };
         tx.set(ref, { names: [...current, next] }, { merge: true });
         return next;
       });
