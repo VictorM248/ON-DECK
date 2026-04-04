@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth, OAuthProvider } from "firebase/auth";
+import { getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string,
@@ -16,6 +17,7 @@ export const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
 export const auth = getAuth(app);
+export const functions = getFunctions(app);
 export const microsoftProvider = new OAuthProvider("microsoft.com");
 microsoftProvider.setCustomParameters({
   tenant: import.meta.env.VITE_MICROSOFT_TENANT_ID as string,

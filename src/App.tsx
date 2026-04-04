@@ -8,7 +8,7 @@ import { useSavedNamesFirestore } from "./lib/useSavedNamesFirestore";
 import { useSavedManagersFirestore } from "./lib/useSavedManagersFirestore";
 import { isAdminLike } from "./lib/roles";
 
-import { auth, db } from "./lib/firebase";
+import { auth, db, functions } from "./lib/firebase";
 import {
   OAuthProvider,
   reauthenticateWithPopup,
@@ -16,6 +16,7 @@ import {
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { UserPlus, UserStar } from "lucide-react";
+import { httpsCallable } from "firebase/functions";
 
 type Role = "Sales" | "Admin";
 
@@ -42,10 +43,10 @@ function AppInner({ storeId }: { storeId: string }) {
   const adminLockTimeoutRef = useRef<number | null>(null);
   const isAdminUnlocked = Date.now() < adminUnlockedUntil;
 
-  const ADMIN_PIN = import.meta.env.VITE_ADMIN_PIN || "";
   const [adminPinOpen, setAdminPinOpen] = useState(false);
   const [adminPin, setAdminPin] = useState("");
   const [adminPinError, setAdminPinError] = useState("");
+  const [adminPinLoading, setAdminPinLoading] = useState(false);
 
   const adminAuthInProgressRef = useRef(false);
 
@@ -249,21 +250,19 @@ function AppInner({ storeId }: { storeId: string }) {
   };
 
   const handleConfirmAdd = () => {
-    const fn = modalFirst.trim();
-    const ln = modalLast.trim();
-    const em = modalEmail.trim().toLowerCase();
-    const nt = modalNote.trim();
-    if (!fn || !em) return;
+  const fn = modalFirst.trim();
+  const ln = modalLast.trim();
+  const em = modalEmail.trim().toLowerCase();
+  const nt = modalNote.trim();
 
-    const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em);
-    if (!emailValid) {
-      alert("Please enter a valid email address.");
-      return;
-    }
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em);
 
-    queueAddRef.current?.(fn, ln, em, nt);
-    closeAddModal();
-  };
+  if (!fn) return;
+  if (!em || !emailValid) return;
+
+  queueAddRef.current?.(fn, ln, em, nt);
+  closeAddModal();
+};
 
   const handleQuickAddSaved = (saved: SavedName) => {
     const nt = modalNote.trim();
@@ -340,26 +339,50 @@ function AppInner({ storeId }: { storeId: string }) {
             {isAdminLike(role) ? (
               <>
                 <div className="space-y-3 mb-4">
-                  <input
-                    value={modalFirst}
-                    onChange={(e) => setModalFirst(e.target.value)}
-                    placeholder="First name"
-                    className="w-full rounded-xl border border-slate-600 bg-slate-800 px-4 py-2 text-sm text-slate-100 placeholder:text-slate-400 outline-none focus:border-blue-500"
-                  />
+                  <div>
+                    <input
+                      value={modalFirst}
+                      onChange={(e) => setModalFirst(e.target.value)}
+                      placeholder="First name *"
+                      className={`w-full rounded-xl border px-4 py-2 text-sm text-slate-100 placeholder:text-slate-400 outline-none bg-slate-800 focus:border-blue-500 ${
+                        !modalFirst.trim() ? "border-red-500/60" : "border-slate-600"
+                      }`}
+                    />
+                    {!modalFirst.trim() && (
+                      <p className="text-xs text-red-400 mt-1 ml-1">First name is required</p>
+                    )}
+                  </div>
+
                   <input
                     value={modalLast}
                     onChange={(e) => setModalLast(e.target.value)}
                     placeholder="Last name (optional)"
                     className="w-full rounded-xl border border-slate-600 bg-slate-800 px-4 py-2 text-sm text-slate-100 placeholder:text-slate-400 outline-none focus:border-blue-500"
                   />
-                  <input
-                    value={modalEmail}
-                    onChange={(e) => setModalEmail(e.target.value)}
-                    placeholder="Email address (required)"
-                    type="email"
-                    autoCapitalize="none"
-                    className="w-full rounded-xl border border-slate-600 bg-slate-800 px-4 py-2 text-sm text-slate-100 placeholder:text-slate-400 outline-none focus:border-blue-500"
-                  />
+
+                  <div>
+                    <input
+                      value={modalEmail}
+                      onChange={(e) => setModalEmail(e.target.value)}
+                      placeholder="Email address *"
+                      type="email"
+                      autoCapitalize="none"
+                      className={`w-full rounded-xl border px-4 py-2 text-sm text-slate-100 placeholder:text-slate-400 outline-none bg-slate-800 focus:border-blue-500 ${
+                        modalEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(modalEmail.trim())
+                          ? "border-red-500/60"
+                          : !modalEmail.trim()
+                          ? "border-red-500/60"
+                          : "border-slate-600"
+                      }`}
+                    />
+                    {!modalEmail.trim() && (
+                      <p className="text-xs text-red-400 mt-1 ml-1">Email is required</p>
+                    )}
+                    {modalEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(modalEmail.trim()) && (
+                      <p className="text-xs text-red-400 mt-1 ml-1">Please enter a valid email address</p>
+                    )}
+                  </div>
+
                   <input
                     value={modalNote}
                     onChange={(e) => setModalNote(e.target.value)}
@@ -377,7 +400,12 @@ function AppInner({ storeId }: { storeId: string }) {
                   </button>
                   <button
                     onClick={handleConfirmAdd}
-                    className="flex-1 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
+                    disabled={
+                      !modalFirst.trim() ||
+                      !modalEmail.trim() ||
+                      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(modalEmail.trim())
+                    }
+                    className="flex-1 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Add to queue
                   </button>
@@ -567,16 +595,17 @@ function AppInner({ storeId }: { storeId: string }) {
               autoFocus
               onKeyDown={async (e) => {
                 if (e.key !== "Enter") return;
-                if (!ADMIN_PIN) {
-                  setAdminPinError("Admin PIN is not configured.");
-                  return;
-                }
-                if (adminPin.trim() !== ADMIN_PIN) {
-                  setAdminPinError("Incorrect PIN.");
-                  return;
-                }
+                setAdminPinLoading(true);
+              try {
+                const verifyAdminPin = httpsCallable(functions, 'verifyAdminPin');
+                await verifyAdminPin({ pin: adminPin.trim() });
                 setAdminPinOpen(false);
                 await requestAdminAccess();
+              } catch (e: any) {
+                setAdminPinError(e?.message?.includes('Incorrect') ? 'Incorrect PIN.' : 'Verification failed.');
+              } finally {
+                setAdminPinLoading(false);
+              }
               }}
             />
             {adminPinError && (
@@ -593,18 +622,20 @@ function AppInner({ storeId }: { storeId: string }) {
               <button
                 type="button"
                 onClick={async () => {
-                  if (!ADMIN_PIN) {
-                    setAdminPinError("Admin PIN is not configured.");
-                    return;
+                  setAdminPinLoading(true);
+                  try {
+                    const verifyAdminPin = httpsCallable(functions, 'verifyAdminPin');
+                    await verifyAdminPin({ pin: adminPin.trim() });
+                    setAdminPinOpen(false);
+                    await requestAdminAccess();
+                  } catch (e: any) {
+                    setAdminPinError(e?.message?.includes('Incorrect') ? 'Incorrect PIN.' : 'Verification failed.');
+                  } finally {
+                    setAdminPinLoading(false);
                   }
-                  if (adminPin.trim() !== ADMIN_PIN) {
-                    setAdminPinError("Incorrect PIN.");
-                    return;
-                  }
-                  setAdminPinOpen(false);
-                  await requestAdminAccess();
                 }}
-                className="flex-1 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
+                className="flex-1 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
+                  disabled={adminPinLoading}
               >
                 Continue
               </button>
