@@ -5,7 +5,7 @@ import { Sidebar, SidebarItem } from "../components/Sidebar";
 import { List, Users, CheckCircle, Handshake, BarChart3, DoorOpen, Phone, Globe, Timer, UserCog, UserX,} from "lucide-react";
 import { auth, db } from "../lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { collection, getDocs, updateDoc, deleteDoc, doc, getDoc } from "firebase/firestore";
+import { collection, getDocs, updateDoc, deleteDoc, doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
 
 
@@ -179,6 +179,17 @@ const barStyle = (mins: number) => {
   const [currentUserRole, setCurrentUserRole] = useState<string>("");
   const [currentUserStoreId, setCurrentUserStoreId] = useState<string>("");
 
+  // Add user modal state
+const [addUserModalOpen, setAddUserModalOpen] = useState(false);
+const [newUserFirstName, setNewUserFirstName] = useState("");
+const [newUserLastName, setNewUserLastName] = useState("");
+const [newUserEmail, setNewUserEmail] = useState("");
+const [newUserStoreId, setNewUserStoreId] = useState("");
+const [newUserRole, setNewUserRole] = useState("sales");
+const [newUserSaving, setNewUserSaving] = useState(false);
+const [newUserError, setNewUserError] = useState("");
+
+
   // Fetch current user's role and storeId
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -227,6 +238,54 @@ const barStyle = (mins: number) => {
     await deleteDoc(doc(db, "users", uid));
     setUsers((prev) => prev.filter((u) => u.uid !== uid));
   }
+
+  async function createUser() {
+  const fn = newUserFirstName.trim();
+  const ln = newUserLastName.trim();
+  const em = newUserEmail.trim().toLowerCase();
+
+  if (!fn) { setNewUserError("First name is required."); return; }
+  if (!em || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { setNewUserError("Valid email is required."); return; }
+  if (!em.endsWith("@daltoncorp.com")) { setNewUserError("Must be a @daltoncorp.com email."); return; }
+  if (!newUserStoreId) { setNewUserError("Please select a store."); return; }
+
+  const uid = em.replace(/[^a-z0-9]/g, '_');
+  const userRef = doc(db, "users", uid);
+
+  setNewUserSaving(true);
+  setNewUserError("");
+
+  try {
+    const existing = await getDoc(userRef);
+    if (existing.exists()) {
+      setNewUserError("A user with this email already exists.");
+      setNewUserSaving(false);
+      return;
+    }
+
+    await setDoc(userRef, {
+      displayName: ln ? `${fn} ${ln}` : fn,
+      email: em,
+      role: newUserRole,
+      storeId: newUserStoreId,
+      createdAt: serverTimestamp(),
+    });
+
+    setAddUserModalOpen(false);
+    setNewUserFirstName("");
+    setNewUserLastName("");
+    setNewUserEmail("");
+    setNewUserStoreId("");
+    setNewUserRole("sales");
+    setNewUserError("");
+    await fetchUsers();
+  } catch (e) {
+    console.error("createUser failed", e);
+    setNewUserError("Failed to create user. Check console.");
+  } finally {
+    setNewUserSaving(false);
+  }
+}
 
   // Owner sees all assigned users, admin sees only their store
   const assignedUsers = useMemo(() => {
@@ -429,6 +488,88 @@ const ListCard = ({
     <AuthGate onStoreId={setStoreId}>
       {!storeId ? null : <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-800 text-slate-100">
         <div className="flex">
+
+          {/* ADD USER MODAL */}
+{addUserModalOpen && (
+  <div
+    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+    onClick={() => !newUserSaving && setAddUserModalOpen(false)}
+  >
+    <div
+      className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <h2 className="text-lg font-semibold text-slate-100 mb-4">Add New User</h2>
+      <div className="flex flex-col gap-3">
+        <input
+          value={newUserFirstName}
+          onChange={(e) => setNewUserFirstName(e.target.value)}
+          placeholder="First name *"
+          className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-400 outline-none focus:border-blue-500"
+          disabled={newUserSaving}
+        />
+        <input
+          value={newUserLastName}
+          onChange={(e) => setNewUserLastName(e.target.value)}
+          placeholder="Last name (optional)"
+          className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-400 outline-none focus:border-blue-500"
+          disabled={newUserSaving}
+        />
+        <input
+          value={newUserEmail}
+          onChange={(e) => setNewUserEmail(e.target.value)}
+          placeholder="Email (@daltoncorp.com) *"
+          type="email"
+          autoCapitalize="none"
+          className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-400 outline-none focus:border-blue-500"
+          disabled={newUserSaving}
+        />
+        <select
+          value={newUserStoreId}
+          onChange={(e) => setNewUserStoreId(e.target.value)}
+          className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
+          disabled={newUserSaving}
+        >
+          <option value="">— Select store —</option>
+          {assignableStores.map((s) => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
+        </select>
+        <select
+          value={newUserRole}
+          onChange={(e) => setNewUserRole(e.target.value)}
+          className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
+          disabled={newUserSaving}
+        >
+          {assignableRoles.map((r) => (
+            <option key={r} value={r}>{r}</option>
+          ))}
+        </select>
+        {newUserError && (
+          <p className="text-xs text-red-400">{newUserError}</p>
+        )}
+      </div>
+      <div className="flex gap-2 mt-4">
+        <button
+          onClick={() => !newUserSaving && setAddUserModalOpen(false)}
+          className="flex-1 rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+          disabled={newUserSaving}
+        >
+          Cancel
+        </button>
+        <button
+          onClick={createUser}
+          className="flex-1 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
+          disabled={newUserSaving}
+        >
+          {newUserSaving ? "Saving..." : "Create User"}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+
           {/* LEFT SIDEBAR */}
             <Sidebar
             expanded={sidebarOpen}
@@ -614,7 +755,19 @@ const ListCard = ({
               {(panel === "users" || panel === "unassigned") && isAdminOrOwner && (
                 <div className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden">
                   <div className="px-4 py-3 border-b border-slate-800 font-semibold text-slate-200 flex items-center justify-between">
-                    <span>{panel === "users" ? "All Users" : "Unassigned Users"}</span>
+                  <span>{panel === "users" ? "All Users" : "Unassigned Users"}</span>
+                  <div className="flex items-center gap-2">
+                    {isAdminOrOwner && (
+                      <button
+                        onClick={() => {
+                          setNewUserError("");
+                          setAddUserModalOpen(true);
+                        }}
+                        className="text-xs text-blue-400 hover:text-blue-200 border border-blue-800 rounded-lg px-2 py-1"
+                      >
+                        + Add User
+                      </button>
+                    )}
                     <button
                       onClick={fetchUsers}
                       className="text-xs text-slate-400 hover:text-slate-200 border border-slate-700 rounded-lg px-2 py-1"
@@ -622,7 +775,7 @@ const ListCard = ({
                       Refresh
                     </button>
                   </div>
-
+                </div>
                   {usersLoading ? (
                     <div className="px-4 py-4 text-sm text-slate-400">Loading...</div>
                   ) : (
