@@ -126,57 +126,48 @@ export function AuthGate({ children, onStoreId }: { children: React.ReactNode, o
 
   // If the user is signed in but profile isn't ready, lock the app behind the name modal.
   return (
-    <div>
-      <div className="p-2 flex justify-end">
-        <button
-          className="px-3 py-1 rounded border"
-          onClick={() => signOut(auth)}
-        >
-          Sign out
-        </button>
-      </div>
+  <>
+    {nameModalOpen && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+        <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-xl">
+          <div className="text-lg font-semibold text-white">
+            Set your name
+          </div>
+          <div className="mt-1 text-sm text-slate-300">
+            This is what other people will see in ON-DECK.
+          </div>
 
-      {nameModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-xl">
-            <div className="text-lg font-semibold text-white">
-              Set your name
-            </div>
-            <div className="mt-1 text-sm text-slate-300">
-              This is what other people will see in ON-DECK.
-            </div>
+          <input
+            className="mt-4 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none"
+            placeholder="Your name (e.g., Victor)"
+            value={displayNameInput}
+            onChange={(e) => setDisplayNameInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveDisplayName();
+            }}
+            autoFocus
+          />
 
-            <input
-              className="mt-4 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none"
-              placeholder="Your name (e.g., Victor)"
-              value={displayNameInput}
-              onChange={(e) => setDisplayNameInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") saveDisplayName();
-              }}
-              autoFocus
-            />
-
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                className="rounded-lg border border-slate-700 px-4 py-2 text-slate-200"
-                onClick={() => signOut(auth)}
-              >
-                Cancel
-              </button>
-              <button
-                className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white disabled:opacity-50"
-                disabled={!displayNameInput.trim()}
-                onClick={saveDisplayName}
-              >
-                Save
-              </button>
-            </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              className="rounded-lg border border-slate-700 px-4 py-2 text-slate-200"
+              onClick={() => signOut(auth)}
+            >
+              Cancel
+            </button>
+            <button
+              className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white disabled:opacity-50"
+              disabled={!displayNameInput.trim()}
+              onClick={saveDisplayName}
+            >
+              Save
+            </button>
           </div>
         </div>
-      )}
+      </div>
+    )}
 
-      {profileReady ? children : null}
-    </div>
-  );
+    {profileReady ? children : null}
+  </>
+);
 }

@@ -34,21 +34,26 @@ export function Sidebar({
 
       <nav className="h-full w-full flex flex-col">
         {/* TOP */}
-        <div className="px-4 pt-4 pb-3 min-h-[104px] flex items-start">
-          <button
-            type="button"
-            onClick={onToggle}
-            className="h-11 w-11 rounded-xl bg-slate-900 border border-slate-800 overflow-hidden flex items-center justify-center hover:bg-slate-800 transition"
-            title={expanded ? "Collapse" : "Expand"}
-          >
-            {top}
-          </button>
-        </div>
-
+          <div className="px-3 py-3 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onToggle}
+              className="h-11 w-11 rounded-xl bg-slate-900 border border-slate-800 overflow-hidden flex items-center justify-center hover:bg-slate-800 transition shrink-0"
+              title={expanded ? "Collapse" : "Expand"}
+            >
+              {top}
+            </button>
+            {expanded && (
+              <div className="flex flex-col leading-tight overflow-hidden">
+                <span className="text-sm font-bold text-slate-100 whitespace-nowrap">Dalton</span>
+                <span className="text-xs text-slate-400 italic whitespace-nowrap">Passion for you</span>
+              </div>
+            )}
+          </div>
         <div className="h-px bg-slate-800/80 w-full" />
 
         <SidebarContext.Provider value={{ expanded }}>
-          <ul className="p-3 flex-1 flex flex-col gap-2">
+          <ul className="px-[10px] py-3 flex-1 flex flex-col gap-2">
 
 
             {children}
@@ -90,7 +95,7 @@ export function SidebarItem({
   const base =
   "relative w-full rounded-xl border transition flex items-center group overflow-hidden";
     const openCls = "h-11 px-3 gap-3 justify-start";     
-    const closedCls = "h-11 w-11 mx-auto justify-center"; 
+    const closedCls = "h-11 w-11 mx-auto justify-center shrink-0"; 
  
   const stateCls = disabled
     ? "opacity-50 cursor-not-allowed bg-slate-900 border-slate-800 text-slate-500"
@@ -106,7 +111,7 @@ export function SidebarItem({
         onClick={disabled ? undefined : onClick}
         className={[base, expanded ? openCls : closedCls, stateCls].join(" ")}
       >
-        <span className="text-base w-6 text-center">{icon}</span>
+        <span className="text-base flex items-center justify-center">{icon}</span>
 
         {expanded && (
           <>

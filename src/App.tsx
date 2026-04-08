@@ -13,6 +13,7 @@ import {
   OAuthProvider,
   reauthenticateWithPopup,
   reauthenticateWithRedirect,
+  signOut,
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { UserPlus, UserStar } from "lucide-react";
@@ -692,9 +693,17 @@ function AppInner({ storeId }: { storeId: string }) {
           </div>
 
           {/* Right */}
-          <div className="flex flex-col items-end gap-1">
-            <div className="font-mono text-sm text-slate-200">{currentTime}</div>
-            <select
+            <div className="flex flex-col items-end gap-1">
+              <div className="flex items-center gap-2">
+                <div className="font-mono text-sm text-slate-200">{currentTime}</div>
+                <button
+                  onClick={() => signOut(auth)}
+                  className="text-xs text-slate-400 hover:text-slate-100 border border-slate-700 rounded-lg px-2 py-1 hover:bg-slate-800 transition"
+                >
+                  Sign out
+                </button>
+              </div>
+              <select
               className={`border border-slate-700 rounded-lg px-3 py-1.5 text-sm shadow-sm 
                 ${role === "Sales" ? "bg-slate-800/70 cursor-not-allowed" : "bg-slate-800"}
                 text-slate-100`}

@@ -4,7 +4,7 @@ import { useStoreFeed, type QueueEntry } from "../lib/useStoreFeed";
 import { Sidebar, SidebarItem } from "../components/Sidebar";
 import { List, Users, CheckCircle, Handshake, BarChart3, DoorOpen, Phone, Globe, Timer, UserCog, UserX,} from "lucide-react";
 import { auth, db } from "../lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { collection, getDocs, updateDoc, deleteDoc, doc, getDoc } from "firebase/firestore";
 
 
@@ -435,9 +435,9 @@ const ListCard = ({
             onToggle={() => setSidebarOpen((v) => !v)}
             top={
                 <img
-                src="/brand-logo.png"
-                alt="Logo"
-                className="h-full w-full object-contain"
+                src="/daltonicon.png"
+                alt="Dalton Icon"
+                className="h-full w-full object-cover"
                 />
             }
             >
@@ -538,6 +538,12 @@ const ListCard = ({
                     <option value="North">North</option>
                     <option value="South">South</option>
                 </select>
+                <button
+                  onClick={() => signOut(auth)}
+                  className="rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
+                >
+                  Sign out
+                </button>
                 </div>
             </div>
 
