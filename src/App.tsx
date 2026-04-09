@@ -286,17 +286,6 @@ function AppInner({ storeId }: { storeId: string }) {
                 <UserPlus size={16} className="text-slate-300" />
                 <span>Add guest to queue</span>
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAddChooserOpen(false);
-                  setManagerModalOpen(true);
-                }}
-                className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
-              >
-                <UserStar size={16} className="text-slate-300" />
-                <span>Add manager</span>
-              </button>
             </div>
             <button
               type="button"
@@ -497,70 +486,6 @@ function AppInner({ storeId }: { storeId: string }) {
       )}
       {/* END ADD GUEST MODAL */}
 
-      {/* ADD MANAGER MODAL */}
-      {managerModalOpen && isAdminLike(role) && (
-        <div
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => {
-            if (!managerSaving) {
-              setManagerModalOpen(false);
-              setManagerName("");
-            }
-          }}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl text-slate-100"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-lg font-semibold mb-3 text-slate-100">
-              Add manager
-            </h2>
-            <input
-              value={managerName}
-              onChange={(e) => setManagerName(e.target.value)}
-              placeholder="Manager name"
-              className="w-full rounded-xl border border-slate-600 bg-slate-800 px-4 py-2 text-sm text-slate-100 placeholder:text-slate-400 outline-none focus:border-blue-500"
-              disabled={managerSaving}
-            />
-            <div className="flex gap-2 mt-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setManagerModalOpen(false);
-                  setManagerName("");
-                }}
-                disabled={managerSaving}
-                className="flex-1 rounded-xl border border-slate-600 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  const nm = managerName.trim();
-                  if (!nm) return;
-                  setManagerSaving(true);
-                  try {
-                    await addManager(nm);
-                    setManagerModalOpen(false);
-                    setManagerName("");
-                  } catch (e) {
-                    console.error("addManager failed", e);
-                    alert("Failed to save manager. Check console.");
-                  } finally {
-                    setManagerSaving(false);
-                  }
-                }}
-                disabled={managerSaving || !managerName.trim()}
-                className="flex-1 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
-              >
-                Add
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* END ADD MANAGER MODAL */}
 
       {/* ADMIN PIN MODAL */}
       {adminPinOpen && (
