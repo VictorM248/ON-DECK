@@ -4,7 +4,7 @@ import {
   type QueueEntry,
   type JoinType as FeedJoinType,
 } from "../lib/useStoreFeed";
-import { useSavedManagersFirestore } from "../lib/useSavedManagersFirestore";
+import { useStoreUsers } from "../lib/useStoreUsers";
 import { isAdminLike } from "../lib/roles";
 import { Calendar, Handshake, DoorOpen, Phone, Globe } from "lucide-react";
 import type { ReactElement } from "react";
@@ -35,15 +35,7 @@ export default function Queue({
 }: QueueProps) {
   const { data, initIfMissing, updateFeed } = useStoreFeed(storeId, region);
 
-  const {
-    savedManagers = [],
-    addManager,
-    initIfMissing: initSavedManagers,
-  } = useSavedManagersFirestore(storeId);
-
-  useEffect(() => {
-    initSavedManagers();
-  }, [initSavedManagers]);
+  const { managerUsers } = useStoreUsers(storeId);
 
   const queue = (data.queue ?? []) as Entry[];
   const active = (data.active ?? []) as Entry[];
@@ -77,7 +69,6 @@ export default function Queue({
 
   // manager selection
   const [selectedManagerIds, setSelectedManagerIds] = useState<string[]>([]);
-  const [newManagerName, setNewManagerName] = useState("");
 
   const [returnPosition, setReturnPosition] = useState<"top" | "bottom">("bottom");
 
@@ -287,20 +278,18 @@ export default function Queue({
     setDoneActiveId(entryId);
     const entry = active.find((e) => e.id === entryId);
     if (entry?.managers?.length) {
-      const ids = savedManagers
-        .filter((m) => entry.managers!.includes(m.name))
-        .map((m) => m.id);
+      const ids = managerUsers
+        .filter((m) => entry.managers!.includes(m.displayName))
+        .map((m) => m.uid);
       setSelectedManagerIds(ids);
     } else {
       setSelectedManagerIds([]);
     }
-    setNewManagerName("");
   };
 
   const openCompleteModal = (entryId: string) => {
     setCompleteEntryId(entryId);
     setSelectedManagerIds([]);
-    setNewManagerName("");
     setReturnPosition("bottom");
     setEarlyReason(null);
   };
@@ -308,7 +297,6 @@ export default function Queue({
   const closeCompleteModal = () => {
     setCompleteEntryId(null);
     setSelectedManagerIds([]);
-    setNewManagerName("");
     setReturnPosition("bottom");
     setEarlyReasonModalOpen(false);
     setEarlyReason(null);
@@ -353,21 +341,11 @@ export default function Queue({
     }
 
     let selectedIds = [...selectedManagerIds];
-    const nm = newManagerName.trim();
-    let typed: { id: string; name: string } | null = null;
-
-    if (nm) {
-      if (isAdminLike(role)) {
-        typed = await addManager(nm);
-      }
-      if (typed && !selectedIds.includes(typed.id)) selectedIds.push(typed.id);
-    }
 
     if (selectedIds.length > 3) selectedIds = selectedIds.slice(0, 3);
 
     const idToName = new Map<string, string>();
-    for (const m of savedManagers) idToName.set(m.id, m.name);
-    if (typed) idToName.set(typed.id, typed.name);
+    for (const m of managerUsers) idToName.set(m.uid, m.displayName);
 
     const managersList = selectedIds
       .map((id) => idToName.get(id))
@@ -446,21 +424,11 @@ export default function Queue({
     }
 
     let selectedIds = [...selectedManagerIds];
-    const nm = newManagerName.trim();
-    let typed: { id: string; name: string } | null = null;
-
-    if (nm) {
-      if (isAdminLike(role)) {
-        typed = await addManager(nm);
-      }
-      if (typed && !selectedIds.includes(typed.id)) selectedIds.push(typed.id);
-    }
 
     if (selectedIds.length > 3) selectedIds = selectedIds.slice(0, 3);
 
     const idToName = new Map<string, string>();
-    for (const m of savedManagers) idToName.set(m.id, m.name);
-    if (typed) idToName.set(typed.id, typed.name);
+    for (const m of managerUsers) idToName.set(m.uid, m.displayName);
 
     const helpers = selectedIds
       .map((id) => idToName.get(id))
@@ -490,7 +458,6 @@ export default function Queue({
 
     setDoneActiveId(null);
     setSelectedManagerIds([]);
-    setNewManagerName("");
   };
 
   return (
@@ -556,7 +523,6 @@ export default function Queue({
           onClick={() => {
             setDoneActiveId(null);
             setSelectedManagerIds([]);
-            setNewManagerName("");
           }}
         >
           <div
@@ -601,38 +567,31 @@ export default function Queue({
                     <p className="text-xs text-slate-400 mb-1">
                       Who helped you with this visit? (optional)
                     </p>
-                    {savedManagers.length > 0 ? (
+                    {managerUsers.length > 0 ? (
                       <div className="flex flex-wrap gap-2 mb-2">
-                        {savedManagers.map((m) => {
-                          const selected = selectedManagerIds.includes(m.id);
+                        {managerUsers.map((m) => {
+                          const selected = selectedManagerIds.includes(m.uid);
                           return (
                             <button
-                              key={m.id}
+                              key={m.uid}
                               type="button"
-                              onClick={() => toggleManagerSelection(m.id)}
+                              onClick={() => toggleManagerSelection(m.uid)}
                               className={`rounded-full border px-3 py-1 text-xs ${
                                 selected
                                   ? "bg-blue-600 border-blue-500 text-white"
                                   : "bg-slate-800 border-slate-600 text-slate-200 hover:bg-slate-700"
                               }`}
                             >
-                              {m.name}
+                              {m.displayName}
                             </button>
                           );
                         })}
                       </div>
                     ) : (
                       <p className="text-[11px] text-slate-500 mb-2">
-                        No helpers saved yet. You can add one below.
+                        No managers found for this store.
                       </p>
                     )}
-                    <input
-                      value={newManagerName}
-                      onChange={(e) => setNewManagerName(e.target.value)}
-                      disabled={role !== "Admin"}
-                      placeholder={isAdminLike(role) ? "Manager name" : "Admin only"}
-                      className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                    />
                   </div>
                 </div>
               );
@@ -641,7 +600,6 @@ export default function Queue({
               onClick={() => {
                 setDoneActiveId(null);
                 setSelectedManagerIds([]);
-                setNewManagerName("");
               }}
               className="mt-4 w-full rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
             >
@@ -707,44 +665,32 @@ export default function Queue({
                       Send to <span className="font-semibold mx-1">bottom</span> of queue
                     </RunnerButton>
                   </div>
-                  {savedManagers.length > 0 && (
-                    <div className="mb-3">
+                  {managerUsers.length > 0 && (
+                    <div className="mb-4">
                       <p className="text-xs text-slate-400">
                         Tap up to 3 managers who helped:
                       </p>
                       <div className="flex flex-wrap gap-2 mt-2">
-                        {savedManagers.map((m) => {
-                          const selected = selectedManagerIds.includes(m.id);
+                        {managerUsers.map((m) => {
+                          const selected = selectedManagerIds.includes(m.uid);
                           return (
                             <button
-                              key={m.id}
+                              key={m.uid}
                               type="button"
-                              onClick={() => toggleManagerSelection(m.id)}
+                              onClick={() => toggleManagerSelection(m.uid)}
                               className={`rounded-full border px-3 py-1 text-xs ${
                                 selected
                                   ? "bg-blue-600 border-blue-500 text-white"
                                   : "bg-slate-800 border-slate-600 text-slate-200 hover:bg-slate-700"
                               }`}
                             >
-                              {m.name}
+                              {m.displayName}
                             </button>
                           );
                         })}
                       </div>
                     </div>
                   )}
-                  <div className="mb-4">
-                    <p className="text-xs text-slate-400 mb-1">
-                      Add another manager (optional):
-                    </p>
-                    <input
-                      value={newManagerName}
-                      onChange={(e) => setNewManagerName(e.target.value)}
-                      disabled={role !== "Admin"}
-                      placeholder={isAdminLike(role) ? "Manager name" : "Admin only"}
-                      className="w-full rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                    />
-                  </div>
                 </>
               );
             })()}

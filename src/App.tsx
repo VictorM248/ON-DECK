@@ -5,6 +5,7 @@ import { AuthGate } from "./components/AuthGate";
 
 import { useStoreFeed } from "./lib/useStoreFeed";
 import { useSavedNamesFirestore } from "./lib/useSavedNamesFirestore";
+import { useStoreUsers } from "./lib/useStoreUsers";
 import { useSavedManagersFirestore } from "./lib/useSavedManagersFirestore";
 import { isAdminLike } from "./lib/roles";
 
@@ -196,9 +197,7 @@ function AppInner({ storeId }: { storeId: string }) {
   }, []);
 
   const {
-    savedNames,
     addSavedName,
-    removeSavedName,
     initIfMissing: initSavedNames,
   } = useSavedNamesFirestore(storeId);
 
@@ -206,19 +205,7 @@ function AppInner({ storeId }: { storeId: string }) {
     initSavedNames();
   }, [initSavedNames]);
 
-  // Migrate localStorage -> Firestore (only if Firestore empty)
-  useEffect(() => {
-    if (savedNames.length > 0) return;
-    const raw = JSON.parse(localStorage.getItem("savedNames") || "[]");
-    if (!Array.isArray(raw) || raw.length === 0) return;
-    raw.forEach((n: any) => {
-      const fn = (n.firstName ?? "").trim();
-      const ln = (n.lastName ?? "").trim();
-      const em = (n.email ?? "").trim();
-      if (fn && em) addSavedName(fn, ln, em);
-    });
-    localStorage.removeItem("savedNames");
-  }, [savedNames.length, addSavedName]);
+  const { guestUsers } = useStoreUsers(storeId);
 
   const { addManager } = useSavedManagersFirestore(storeId);
 
@@ -412,48 +399,45 @@ function AppInner({ storeId }: { storeId: string }) {
                   </button>
                 </div>
 
-                {savedNames.length > 0 && (
+                {guestUsers.length > 0 && (
                   <div className="mt-4">
                     <p className="text-xs font-medium text-slate-400 mb-2">
-                      Manage saved names
+                      Quick add from users
                     </p>
                     <div className="flex flex-col gap-2 max-h-40 overflow-y-auto">
-                      {savedNames.map((n) => (
-                        <div
-                          key={n.id}
-                          className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm flex items-center justify-between"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => handleQuickAddSaved(n)}
-                            className="flex items-center gap-3 text-left hover:opacity-90"
-                            title="Add to queue"
+                      {guestUsers.map((u) => {
+                        const [firstName, ...rest] = u.displayName.split(" ");
+                        const lastName = rest.join(" ");
+                        const initials = (firstName[0] + (lastName?.[0] ?? "")).toUpperCase();
+                        return (
+                          <div
+                            key={u.uid}
+                            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm flex items-center"
                           >
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white text-xs font-semibold">
-                              {(n.firstName[0] + (n.lastName?.[0] ?? "")).toUpperCase()}
-                            </div>
-                            <div className="flex flex-col">
-                              <span className="font-medium text-slate-100">
-                                {n.firstName} {n.lastName}
+                            <button
+                              type="button"
+                              onClick={() => handleQuickAddSaved({ id: u.uid, firstName, lastName, email: u.email })}
+                              className="flex items-center gap-3 text-left hover:opacity-90 flex-1"
+                              title="Add to queue"
+                            >
+                              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white text-xs font-semibold">
+                                {initials}
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="font-medium text-slate-100">
+                                  {u.displayName}
+                                </span>
+                                <span className="text-[11px] text-slate-400">
+                                  {u.email}
+                                </span>
+                              </div>
+                              <span className="ml-2 text-[11px] text-slate-400">
+                                Add to queue
                               </span>
-                              <span className="text-[11px] text-slate-400">
-                                {n.email}
-                              </span>
-                            </div>
-                            <span className="ml-2 text-[11px] text-slate-400">
-                              Add to queue
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeSavedName(n.id)}
-                            className="text-[11px] text-red-400 hover:text-red-300"
-                            title="Remove saved name"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -461,36 +445,41 @@ function AppInner({ storeId }: { storeId: string }) {
             ) : (
               /* Sales view */
               <>
-                {savedNames.length > 0 ? (
+                {guestUsers.length > 0 ? (
                   <>
                     <p className="text-sm text-slate-300 mb-3">
-                      Tap a saved name below to add them to the queue.
+                      Tap a name below to add them to the queue.
                     </p>
                     <div className="flex flex-col gap-2 max-h-60 overflow-y-auto mb-4">
-                      {savedNames.map((n) => (
-                        <button
-                          key={n.id}
-                          onClick={() => handleQuickAddSaved(n)}
-                          className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm flex items-center justify-between hover:bg-slate-700"
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white text-xs font-semibold">
-                              {(n.firstName[0] + (n.lastName?.[0] ?? "")).toUpperCase()}
+                      {guestUsers.map((u) => {
+                        const [firstName, ...rest] = u.displayName.split(" ");
+                        const lastName = rest.join(" ");
+                        const initials = (firstName[0] + (lastName?.[0] ?? "")).toUpperCase();
+                        return (
+                          <button
+                            key={u.uid}
+                            onClick={() => handleQuickAddSaved({ id: u.uid, firstName, lastName, email: u.email })}
+                            className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm flex items-center justify-between hover:bg-slate-700"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-white text-xs font-semibold">
+                                {initials}
+                              </div>
+                              <span className="font-medium text-slate-100">
+                                {u.displayName}
+                              </span>
                             </div>
-                            <span className="font-medium text-slate-100">
-                              {n.firstName} {n.lastName}
+                            <span className="text-[11px] text-slate-400">
+                              Add to queue
                             </span>
-                          </div>
-                          <span className="text-[11px] text-slate-400">
-                            Add to queue
-                          </span>
-                        </button>
-                      ))}
+                          </button>
+                        );
+                      })}
                     </div>
                   </>
                 ) : (
                   <p className="text-sm text-slate-400 mb-4">
-                    No saved names yet. Please contact an admin.
+                    No users found for this store. Please contact an admin.
                   </p>
                 )}
                 <div className="flex justify-end">
