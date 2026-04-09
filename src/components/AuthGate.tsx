@@ -43,8 +43,12 @@ export function AuthGate({ children, onStoreId }: { children: React.ReactNode, o
     );
 
 
-      const userRef = doc(db, "users", u.uid);
-      const snap = await getDoc(userRef);
+      const emailUid = (u.email ?? "").toLowerCase().replace(/[^a-z0-9]/g, "_");
+      const emailRef = doc(db, "users", emailUid);
+      const emailSnap = await getDoc(emailRef);
+
+      const userRef = emailSnap.exists() ? emailRef : doc(db, "users", u.uid);
+      const snap = emailSnap.exists() ? emailSnap : await getDoc(doc(db, "users", u.uid));
 
       // Make sure user doc exists with baseline fields
         if (!snap.exists()) {
