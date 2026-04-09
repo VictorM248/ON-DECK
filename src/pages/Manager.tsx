@@ -194,7 +194,8 @@ const [newUserError, setNewUserError] = useState("");
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       if (!u) return;
-      getDoc(doc(db, "users", u.uid)).then((snap) => {
+      const emailUid = (u.email ?? "").toLowerCase().replace(/[^a-z0-9]/g, "_");
+      getDoc(doc(db, "users", emailUid)).then((snap) => {
         setCurrentUserRole(snap.data()?.role ?? "");
         setCurrentUserStoreId(snap.data()?.storeId ?? "");
       });
@@ -221,10 +222,8 @@ const [newUserError, setNewUserError] = useState("");
   }, [isAdminOrOwner]);
 
   useEffect(() => {
-    if (panel === "users" || panel === "unassigned") {
-      fetchUsers();
-    }
-  }, [panel, fetchUsers]);
+    fetchUsers();
+  }, [fetchUsers]);
 
   async function updateUser(uid: string, field: "role" | "storeId", value: string) {
     await updateDoc(doc(db, "users", uid), { [field]: value });
