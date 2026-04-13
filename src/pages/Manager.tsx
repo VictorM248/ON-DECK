@@ -99,20 +99,32 @@ const earlyReasonLabel = (r?: Entry["earlyReason"]) => {
   const jt =
     e.joinType === ("appointment" as any) ? ("appt-phone" as const) : e.joinType;
 
-  const map: Record<
+ const map: Record<
     "walk-in" | "appt-phone" | "appt-online",
-    { label: string; icon: React.ReactNode }
+    { label: string; icon: React.ReactNode; cls: string }
   > = {
-    "walk-in": { label: "Walk-in", icon: <DoorOpen size={14} /> },
-    "appt-phone": { label: "Appt (Phone)", icon: <Phone size={14} /> },
-    "appt-online": { label: "Appt (Online)", icon: <Globe size={14} /> },
+    "walk-in": {
+      label: "Walk-in",
+      icon: <DoorOpen size={14} />,
+      cls: "bg-slate-100 text-slate-600 border-slate-200",
+    },
+    "appt-phone": {
+      label: "Appt (Phone)",
+      icon: <Phone size={14} />,
+      cls: "bg-blue-50 text-blue-700 border-blue-200",
+    },
+    "appt-online": {
+      label: "Appt (Online)",
+      icon: <Globe size={14} />,
+      cls: "bg-green-50 text-green-700 border-green-200",
+    },
   };
 
   const cfg = map[jt as "walk-in" | "appt-phone" | "appt-online"];
   if (!cfg) return null;
 
   return (
-    <span className="inline-flex items-center gap-2 rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-100 border border-slate-700">
+    <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs border ${cfg.cls}`}>
       {cfg.icon}
       <span className="font-medium">{cfg.label}</span>
     </span>
@@ -123,9 +135,9 @@ const durationBadge = (e: Entry) => {
   if (!e.durationSec) return null;
 
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-xs">
-      <Timer size={12} />
-      <span className="font-medium text-slate-100">
+    <span className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs">
+      <Timer size={12} className="text-indigo-500" />
+      <span className="font-medium text-indigo-700">
         {formatDuration(e.durationSec)}
       </span>
     </span>
@@ -399,15 +411,15 @@ const ListCard = ({
   rightMeta?: (e: Entry) => string;
   miniBarForRow?: (e: Entry) => { width: string; background: string } | null;
 }) => (
-  <div className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden">
-    <div className="px-4 py-3 border-b border-slate-800 font-semibold text-slate-200 flex items-center justify-between">
+  <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+    <div className="px-4 py-3 border-b border-slate-200 font-bold text-slate-700 flex items-center justify-between border-l-4 border-l-blue-500">
       <span>{title}</span>
       {search.trim() ? (
         <span className="text-xs text-slate-400">Filtered</span>
       ) : null}
     </div>
 
-    <div className="divide-y divide-slate-800">
+    <div className="divide-y divide-slate-100">
       {rows.length === 0 ? (
         <div className="px-4 py-4 text-sm text-slate-400">None</div>
       ) : (
@@ -416,20 +428,20 @@ const ListCard = ({
             {/* ROW HEADER (avatar + name + right side badges/meta) */}
             <div className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3">
               {/* Avatar */}
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white text-xs font-semibold">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 text-xs font-bold">
                 {initials(e)}
               </div>
 
               {/* Name + note */}
               <div className="min-w-0">
-                <div className="text-sm font-medium text-slate-100 truncate">
+                <div className="text-sm font-semibold text-slate-800 truncate">
                   {title === "Queue"
                     ? `${idx + 1}. ${fullLabel(e)}`
                     : fullLabel(e)}
                 </div>
 
                 {e.note ? (
-                  <div className="text-xs text-slate-300 italic truncate">
+                  <div className="text-xs text-slate-400 italic truncate">
                     {e.note}
                   </div>
                 ) : null}
@@ -439,7 +451,7 @@ const ListCard = ({
               {title === "Completed" ? (
                 <div className="col-span-2 justify-self-end flex items-center gap-2 flex-wrap">
                   {e.earlyReason ? (
-                    <span className="inline-flex items-center rounded-full border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs text-slate-100">
+                    <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-amber-700">
                       Needed:
                       <span className="ml-1 font-medium">
                         {earlyReasonLabel(e.earlyReason)}
@@ -485,7 +497,7 @@ const ListCard = ({
 
   return (
     <AuthGate onStoreId={setStoreId}>
-      {!storeId ? null : <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-800 text-slate-100">
+      {!storeId ? null : <div className="min-h-screen bg-slate-100 text-slate-800">
         <div className="flex">
 
           {/* ADD USER MODAL */}
@@ -573,6 +585,7 @@ const ListCard = ({
             <Sidebar
             expanded={sidebarOpen}
             onToggle={() => setSidebarOpen((v) => !v)}
+            dark
             top={
                 <img
                 src="/daltonicon.png"
@@ -653,11 +666,11 @@ const ListCard = ({
           {/* MAIN */}
           <main className="flex-1">
             {/* TOP BAR */}
-            <div className="sticky top-0 z-30 bg-slate-950/80 backdrop-blur px-5 py-3">
+            <div className="sticky top-0 z-30 bg-white border-b border-slate-200 px-5 py-3">
             <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                <div className="text-xl font-bold truncate">Manager Dashboard</div>
-                <div className="text-xs text-slate-400">{todayLabel}</div>
+                <div className="text-2xl font-bold tracking-tight truncate text-slate-800">Manager Dashboard</div>
+                <div className="text-xs font-medium text-slate-400 tracking-wide uppercase">{todayLabel}</div>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -666,12 +679,12 @@ const ListCard = ({
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Quick Search"
-                    className="w-56 rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-blue-500"
+                    className="w-56 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-blue-500"
                     />
                 </div>
 
                 <select
-                    className="rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500"
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:border-blue-500"
                     value={region}
                     onChange={(e) => setRegion(e.target.value)}
                 >
@@ -680,36 +693,38 @@ const ListCard = ({
                 </select>
                 <button
                   onClick={() => signOut(auth)}
-                  className="rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-50 transition"
                 >
                   Sign out
                 </button>
                 </div>
             </div>
 
-            {/* Small stat chips */}
-            <div className="mt-3 flex flex-wrap gap-2">
-                <div className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs text-slate-200">
-                Queue: <span className="font-semibold">{queue.length}</span>
-                </div>
-
-                <div className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs text-slate-200">
-                With Customers: <span className="font-semibold">{active.length}</span>
-                </div>
-
-                <div className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs text-slate-200">
-                Completed: <span className="font-semibold">{completed.length}</span>
-                </div>
-
-                {search.trim() ? (
-                <div className="rounded-full border border-blue-500/40 bg-blue-600/20 px-3 py-1 text-xs text-blue-100">
-                    Searching: <span className="font-semibold">{search.trim()}</span>
-                </div>
-                ) : null}
+            {/* Stat cards */}
+            <div className="mt-3 grid grid-cols-3 gap-3">
+              <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+                <div className="text-sm font-semibold text-blue-500 uppercase tracking-wide">In Queue</div>
+                <div className="text-3xl font-bold text-blue-700 mt-0.5">{queue.length}</div>
+              </div>
+              <div className="rounded-xl border border-green-100 bg-green-50 px-4 py-3">
+                <div className="text-sm font-semibold text-green-500 uppercase tracking-wide">With Customers</div>
+                <div className="text-3xl font-bold text-green-700 mt-0.5">{active.length}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div className="text-sm font-semibold text-slate-400 uppercase tracking-wide">Completed</div>
+                <div className="text-3xl font-bold text-slate-600 mt-0.5">{completed.length}</div>
+              </div>
             </div>
+            {search.trim() ? (
+              <div className="mt-2">
+                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-600">
+                  Searching: <span className="font-bold">{search.trim()}</span>
+                </span>
+              </div>
+            ) : null}
 
             {/* Divider line (matches sidebar) */}
-            <div className="mt-3 h-px bg-slate-800/80 w-full" />
+            <div className="mt-3 h-px bg-slate-200 w-full" />
             </div>
 
             {/* BODY */}
@@ -752,8 +767,8 @@ const ListCard = ({
               )}
 
               {(panel === "users" || panel === "unassigned") && isAdminOrOwner && (
-                <div className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-slate-800 font-semibold text-slate-200 flex items-center justify-between">
+               <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-200 font-bold text-slate-700 flex items-center justify-between border-l-4 border-l-blue-500">
                   <span>{panel === "users" ? "All Users" : "Unassigned Users"}</span>
                   <div className="flex items-center gap-2">
                     {isAdminOrOwner && (
@@ -778,7 +793,7 @@ const ListCard = ({
                   {usersLoading ? (
                     <div className="px-4 py-4 text-sm text-slate-400">Loading...</div>
                   ) : (
-                    <div className="divide-y divide-slate-800">
+                    <div className="divide-y divide-slate-100">
                       {(panel === "users" ? assignedUsers : unassignedUsers).length === 0 ? (
                         <div className="px-4 py-4 text-sm text-slate-400">None</div>
                       ) : (
@@ -786,18 +801,24 @@ const ListCard = ({
                           <div key={u.uid} className="px-4 py-3 flex flex-col gap-2">
                             {/* Name + email */}
                             <div className="flex items-center gap-3">
-                              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white text-xs font-semibold">
+                              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 text-xs font-semibold">
                                 {(u.displayName?.[0] ?? u.email?.[0] ?? "?").toUpperCase()}
                               </div>
                               <div className="min-w-0">
-                                <div className="text-sm font-medium text-slate-100 truncate">
+                                <div className="text-sm font-medium text-slate-800 truncate">
                                   {u.displayName || "No name set"}
                                 </div>
                                 <div className="text-xs text-slate-400 truncate">{u.email}</div>
                               </div>
                               {/* Store badge */}
                               {u.storeId && (
-                                <span className="ml-auto text-xs rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-slate-300">
+                                <span className={`ml-auto text-xs rounded-full border px-2 py-0.5 ${
+                                  u.storeId === "store-toyota"
+                                    ? "bg-red-50 border-red-200 text-red-700"
+                                    : u.storeId === "store-subaru"
+                                    ? "bg-indigo-50 border-indigo-200 text-indigo-700"
+                                    : "bg-blue-50 border-blue-200 text-blue-700"
+                                }`}>
                                   {u.storeId === "store-toyota" ? "Toyota" : u.storeId === "store-subaru" ? "Subaru" : "Hyundai"}
                                 </span>
                               )}
@@ -810,7 +831,7 @@ const ListCard = ({
                                 value={u.storeId}
                                 disabled={!canChangeStore(u)}
                                 onChange={(e) => updateUser(u.uid, "storeId", e.target.value)}
-                                className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-100 outline-none disabled:opacity-40"
+                                className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 outline-none disabled:opacity-40"
                               >
                                 <option value="">— No store —</option>
                                 {assignableStores.map((s) => (
@@ -823,7 +844,7 @@ const ListCard = ({
                                 value={u.role}
                                 disabled={!canRemove(u)}
                                 onChange={(e) => updateUser(u.uid, "role", e.target.value)}
-                                className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-100 outline-none disabled:opacity-40"
+                                className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 outline-none disabled:opacity-40"
                               >
                                 {assignableRoles.map((r) => (
                                   <option key={r} value={r}>{r}</option>
@@ -849,8 +870,8 @@ const ListCard = ({
               )}
 
               {panel === "team" && (
-                <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-                  <div className="text-lg font-semibold">Team</div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                  <div className="text-lg font-semibold text-slate-800">Team</div>
                   <div className="text-sm text-slate-400 mt-1">
                     Placeholder for a “reps on floor / team status” view.
                   </div>
@@ -858,8 +879,8 @@ const ListCard = ({
               )}
 
               {panel === "analytics" && (
-                <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-                  <div className="text-lg font-semibold">Analytics</div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                  <div className="text-lg font-semibold text-slate-800">Analytics</div>
                   <div className="text-sm text-slate-400 mt-1">
                     Placeholder for later: wait times, rep totals, etc.
                   </div>

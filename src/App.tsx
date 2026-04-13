@@ -6,7 +6,6 @@ import { AuthGate } from "./components/AuthGate";
 import { useStoreFeed } from "./lib/useStoreFeed";
 import { useSavedNamesFirestore } from "./lib/useSavedNamesFirestore";
 import { useStoreUsers } from "./lib/useStoreUsers";
-import { useSavedManagersFirestore } from "./lib/useSavedManagersFirestore";
 import { isAdminLike } from "./lib/roles";
 
 import { auth, db, functions } from "./lib/firebase";
@@ -17,7 +16,7 @@ import {
   signOut,
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { UserPlus, UserStar } from "lucide-react";
+import { UserPlus } from "lucide-react";
 import { httpsCallable } from "firebase/functions";
 
 type Role = "Sales" | "Admin";
@@ -27,6 +26,12 @@ type SavedName = {
   firstName: string;
   lastName: string;
   email: string;
+};
+
+const storeNameMap: Record<string, { label: string; color: string }> = {
+  "store-toyota": { label: "TOYOTA", color: "#EB0A1E" },
+  "store-subaru": { label: "SUBARU", color: "#003399" },
+  "store-hyundai": { label: "HYUNDAI", color: "#002C5F" },
 };
 
 function AppInner({ storeId }: { storeId: string }) {
@@ -207,8 +212,6 @@ function AppInner({ storeId }: { storeId: string }) {
 
   const { guestUsers } = useStoreUsers(storeId);
 
-  const { addManager } = useSavedManagersFirestore(storeId);
-
   // Queue add handler ref — now includes email
   const queueAddRef = useRef<
     ((first: string, last: string, email: string, note: string) => void) | null
@@ -223,9 +226,6 @@ function AppInner({ storeId }: { storeId: string }) {
   const [addChooserOpen, setAddChooserOpen] = useState(false);
 
   // Manager modal state
-  const [managerModalOpen, setManagerModalOpen] = useState(false);
-  const [managerName, setManagerName] = useState("");
-  const [managerSaving, setManagerSaving] = useState(false);
 
   const openAddModal = () => setShowAddModal(true);
 
@@ -560,10 +560,10 @@ function AppInner({ storeId }: { storeId: string }) {
       )}
 
       {/* HEADER */}
-      <div className="sticky top-0 z-30 bg-gradient-to-b from-slate-900 to-slate-950 backdrop-blur border-b border-blue-900 px-6 py-0.5 relative">
+      <div className="sticky top-0 z-30 bg-gradient-to-b from-slate-900 to-slate-950 backdrop-blur border-b border-blue-900 px-6 relative h-28">
         <div className="absolute left-1/2 -translate-x-1/2 text-center">
-          <h1 className="text-2xl font-bold text-slate-100">ON-DECK</h1>
-          <p className="text-slate-400 text-xs mt-0.5">Active View: {role}</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-100">ON-DECK</h1>
+          <p className="text-slate-400 text-xs font-semibold uppercase tracking-widest mt-0.5">Active View: {role}</p>
           <div className="mt-1">
             <Toggle
               activeRole={role}
@@ -579,56 +579,69 @@ function AppInner({ storeId }: { storeId: string }) {
           </div>
         </div>
 
-        <div className="flex items-start justify-between w-full">
+        <div className="flex items-center justify-between w-full h-full">
           {/* Left */}
-          <div className="flex flex-col items-start gap-3">
-            <input
-              className={`
-                text-lg font-semibold border border-slate-700 rounded-lg px-3 py-1.5 shadow-sm
-                text-center w-72 outline-none
-                ${role === "Sales" ? "bg-slate-800/70 cursor-not-allowed" : "bg-slate-800"}
-                text-slate-100 placeholder:text-slate-400
-              `}
-              value={storeName}
-              onChange={(e) => setStoreName(e.target.value)}
-              placeholder="Company Name"
-              disabled={role === "Sales"}
-            />
-            <div className="w-full flex justify-center">
-              <button
-                onClick={() =>
-                  isAdminLike(role) ? setAddChooserOpen(true) : openAddModal()
-                }
-                className="h-16 w-16 flex items-center justify-center rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-500 transition -translate-y-2"
-              >
-                <span className="text-7xl font-light leading-none -mt-3">+</span>
-              </button>
-            </div>
+          <div className="flex items-center gap-4">
+            {storeNameMap[storeId] ? (
+              <div className="flex items-center gap-2 bg-white rounded-xl px-3 py-2">
+                <img
+                  src="/daltonicon.png"
+                  alt="Dalton"
+                  className="h-8 w-8 object-contain"
+                />
+                <div className="w-px h-8 bg-slate-400" />
+                <span
+                  className="text-lg font-semibold tracking-widest"
+                  style={{ color: storeNameMap[storeId].color }}
+                >
+                  {storeNameMap[storeId].label}
+                </span>
+              </div>
+            ) : (
+              <input
+                className={`
+                  text-lg font-semibold border border-slate-700 rounded-lg px-3 py-1.5 shadow-sm
+                  text-center w-72 outline-none
+                  ${role === "Sales" ? "bg-slate-800/70 cursor-not-allowed" : "bg-slate-800"}
+                  text-slate-100 placeholder:text-slate-400
+                `}
+                value={storeName}
+                onChange={(e) => setStoreName(e.target.value)}
+                placeholder="Company Name"
+                disabled={role === "Sales"}
+              />
+            )}
+            <button
+              onClick={() =>
+                isAdminLike(role) ? setAddChooserOpen(true) : openAddModal()
+              }
+              className="h-14 w-14 flex items-center justify-center rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-500 transition"
+            >
+              <span className="text-6xl font-light leading-none -mt-3">+</span>
+            </button>
           </div>
 
           {/* Right */}
-            <div className="flex flex-col items-end gap-1">
-              <div className="flex items-center gap-2">
-                <div className="font-mono text-sm text-slate-200">{currentTime}</div>
-                <button
-                  onClick={() => signOut(auth)}
-                  className="text-xs text-slate-400 hover:text-slate-100 border border-slate-700 rounded-lg px-2 py-1 hover:bg-slate-800 transition"
-                >
-                  Sign out
-                </button>
-              </div>
+            <div className="flex items-center gap-2">
+              <div className="font-mono text-sm text-slate-200">{currentTime}</div>
               <select
-              className={`border border-slate-700 rounded-lg px-3 py-1.5 text-sm shadow-sm 
-                ${role === "Sales" ? "bg-slate-800/70 cursor-not-allowed" : "bg-slate-800"}
-                text-slate-100`}
-              value={region}
-              onChange={(e) => setRegion(e.target.value)}
-              disabled={role === "Sales"}
-            >
-              <option value="North">North</option>
-              <option value="South">South</option>
-            </select>
-          </div>
+                className={`border border-slate-700 rounded-lg px-3 py-1.5 text-sm shadow-sm 
+                  ${role === "Sales" ? "bg-slate-800/70 cursor-not-allowed" : "bg-slate-800"}
+                  text-slate-100`}
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
+                disabled={role === "Sales"}
+              >
+                <option value="North">North</option>
+                <option value="South">South</option>
+              </select>
+              <button
+                onClick={() => signOut(auth)}
+                className="text-sm text-slate-400 hover:text-slate-100 border border-slate-700 rounded-lg px-3 py-1.5 hover:bg-slate-800 transition"
+              >
+                Sign out
+              </button>
+            </div>
         </div>
       </div>
 

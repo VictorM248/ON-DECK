@@ -96,6 +96,21 @@ export default function Queue({
 
   const fullName = (e: Entry) => `${e.firstName} ${e.lastName}`.trim();
 
+  const avatarColor = (name: string) => {
+    const colors = [
+      "bg-blue-800 text-blue-200",
+      "bg-green-800 text-green-200",
+      "bg-amber-800 text-amber-200",
+      "bg-purple-800 text-purple-200",
+      "bg-rose-800 text-rose-200",
+      "bg-teal-800 text-teal-200",
+      "bg-indigo-800 text-indigo-200",
+      "bg-orange-800 text-orange-200",
+    ];
+    const index = (name.charCodeAt(0) ?? 0) % colors.length;
+    return colors[index];
+  };
+
   const initials = (e: Entry) =>
     `${e.firstName?.[0] ?? ""}${e.lastName?.[0] ?? ""}`.toUpperCase();
 
@@ -157,18 +172,31 @@ export default function Queue({
       e.joinType === ("appointment" as any) ? ("appt-phone" as const) : e.joinType;
     const map: Record<
       "walk-in" | "appt-phone" | "appt-online",
-      { label: string; icon: ReactElement }
+      { label: string; icon: ReactElement; cls: string }
     > = {
-      "walk-in": { label: "Walk-in", icon: <DoorOpen size={16} /> },
-      "appt-phone": { label: "Appt (Phone)", icon: <Phone size={16} /> },
-      "appt-online": { label: "Appt (Online)", icon: <Globe size={16} /> },
+      "walk-in": {
+        label: "Walk-in",
+        icon: <DoorOpen size={16} />,
+        cls: "bg-slate-700 text-slate-100 border-slate-600",
+      },
+      "appt-phone": {
+        label: "Appt (Phone)",
+        icon: <Phone size={16} />,
+        cls: "bg-blue-600/20 text-blue-200 border-blue-500/40",
+      },
+      "appt-online": {
+        label: "Appt (Online)",
+        icon: <Globe size={16} />,
+        cls: "bg-green-600/20 text-green-200 border-green-500/40",
+      },
     };
     const cfg = map[jt as "walk-in" | "appt-phone" | "appt-online"] ?? {
       label: "Appointment",
       icon: <Calendar size={16} />,
+      cls: "bg-slate-700 text-slate-100 border-slate-600",
     };
     return (
-      <span className="ml-2 inline-flex items-center gap-2 rounded-full bg-slate-700 px-3 py-1 text-xs text-slate-100 shadow-sm">
+      <span className={`ml-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs border shadow-sm ${cfg.cls}`}>
         <span className="text-base">{cfg.icon}</span>
         <span className="font-medium">{cfg.label}</span>
       </span>
@@ -875,11 +903,11 @@ export default function Queue({
               return (
                 <div
                   key={e.id}
-                  className="flex items-center justify-between border-t border-slate-800 px-4 py-3 cursor-pointer hover:bg-slate-800"
+                  className="flex items-center justify-between border-t border-slate-800 px-4 py-3 cursor-pointer hover:bg-slate-800 border-l-2 border-l-blue-500"
                   onClick={() => openJoinTypeModal(e.id)}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white text-xs font-semibold">
+                    <div className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold ${avatarColor(e.firstName)}`}>
                       {initials(e)}
                     </div>
                     <div>
@@ -974,13 +1002,13 @@ export default function Queue({
                   <div className="flex items-start gap-4 justify-between">
                     <div className="flex -space-x-2">
                       {avatarInitialsList(e).map((ini, idx) => (
-                        <div
-                          key={idx}
-                          className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-800 text-white text-xs font-semibold border border-slate-900"
-                        >
-                          {ini}
-                        </div>
-                      ))}
+                          <div
+                            key={idx}
+                            className={`flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold border border-slate-900 ${avatarColor(ini)}`}
+                          >
+                            {ini}
+                          </div>
+                        ))}
                     </div>
                     <div className="flex-1">
                       <div className="text-2xl font-semibold text-slate-100">
@@ -1044,13 +1072,13 @@ export default function Queue({
                     <div className="flex items-center gap-4">
                       <div className="flex -space-x-2">
                         {avatarInitialsList(e).map((ini, idx) => (
-                          <div
-                            key={idx}
-                            className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-800 text-white text-xs font-semibold border border-slate-900"
-                          >
-                            {ini}
-                          </div>
-                        ))}
+                        <div
+                          key={idx}
+                          className={`flex h-10 w-10 items-center justify-center rounded-full text-xs font-semibold border border-slate-900 ${avatarColor(ini)}`}
+                        >
+                          {ini}
+                        </div>
+                      ))}
                       </div>
                       <div className="flex-1">
                         <div className="text-2xl font-semibold text-slate-100">
