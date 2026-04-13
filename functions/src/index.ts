@@ -123,6 +123,19 @@ export const onQueueUpdate = onDocumentWritten(
               defaultVibrateTimings: false,
             },
           },
+          apns: {
+            payload: {
+              aps: {
+                sound: "default",
+                badge: 1,
+                contentAvailable: true,
+              },
+            },
+            headers: {
+              "apns-priority": "10",
+              "apns-push-type": "alert",
+            },
+          },
         });
         console.log(`Notification sent to ${entry.email} at position ${position}`);
       } catch (err) {
