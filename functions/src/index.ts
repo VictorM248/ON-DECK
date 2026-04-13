@@ -107,6 +107,12 @@ export const onQueueUpdate = onDocumentWritten(
           ? "You're up next! 🚗"
           : `You're now #${position} in the queue.`;
 
+      const isExpoToken = typeof pushToken === 'string' && pushToken.startsWith('ExponentPushToken');
+      if (isExpoToken) {
+        console.log(`Skipping Expo token for ${entry.email} — native token required`);
+        continue;
+      }
+
       try {
         await admin.messaging().send({
           token: pushToken,
