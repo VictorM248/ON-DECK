@@ -1,5 +1,6 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as admin from "firebase-admin";
 import * as jwt from "jsonwebtoken";
 import jwksRsa = require("jwks-rsa");
@@ -183,5 +184,52 @@ export const verifyAdminPin = onCall(
       throw new HttpsError("unauthenticated", "Incorrect PIN");
     }
     return { success: true };
+  }
+);
+
+// Cloud Function 4: Archive completed entries on the 1st of every month
+export const archiveCompletedEntries = onSchedule(
+  {
+    schedule: "0 0 1 * *",
+    timeZone: "America/Los_Angeles",
+  },
+  async () => {
+    const now = new Date();
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const yearMonth = `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, "0")}`;
+
+    const stores = ["store-toyota", "store-subaru", "store-hyundai"];
+    const regions = ["North", "South"];
+
+    for (const storeId of stores) {
+      const combined: any[] = [];
+
+      for (const region of regions) {
+        const regionRef = admin.firestore()
+          .doc(`stores/${storeId}/regions/${region}`);
+        const snap = await regionRef.get();
+        if (!snap.exists) continue;
+
+        const completed = snap.data()?.completed ?? [];
+        combined.push(...completed);
+
+        await regionRef.update({ completed: [] });
+      }
+
+      if (combined.length === 0) continue;
+
+      const archiveRef = admin.firestore()
+        .doc(`stores/${storeId}/archive/${yearMonth}`);
+
+      const existing = await archiveRef.get();
+      if (existing.exists) {
+        const prev = existing.data()?.entries ?? [];
+        await archiveRef.update({ entries: [...prev, ...combined] });
+      } else {
+        await archiveRef.set({ entries: combined, archivedAt: admin.firestore.FieldValue.serverTimestamp() });
+      }
+
+      console.log(`Archived ${combined.length} entries for ${storeId} → ${yearMonth}`);
+    }
   }
 );

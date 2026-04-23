@@ -192,6 +192,13 @@ const barStyle = (mins: number) => {
 
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
+  const [analyticsMonth, setAnalyticsMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [archiveEntries, setArchiveEntries] = useState<Entry[]>([]);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [selectedSalesperson, setSelectedSalesperson] = useState<string | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<string>("");
   const [currentUserStoreId, setCurrentUserStoreId] = useState<string>("");
 
@@ -231,6 +238,32 @@ const [newUserError, setNewUserError] = useState("");
     const ref = doc(db, "stores", storeId, "regions", region);
     await updateDoc(ref, { queue: newQueue });
   }, [queue, storeId, region]);
+
+  const fetchAnalytics = useCallback(async () => {
+    if (!storeId) return;
+    setArchiveLoading(true);
+    setSelectedSalesperson(null);
+
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+    if (analyticsMonth === currentMonth) {
+      const north = await getDoc(doc(db, "stores", storeId, "regions", "North"));
+      const south = await getDoc(doc(db, "stores", storeId, "regions", "South"));
+      const northEntries = (north.data()?.completed ?? []) as Entry[];
+      const southEntries = (south.data()?.completed ?? []) as Entry[];
+      setArchiveEntries([...northEntries, ...southEntries]);
+    } else {
+      const archiveSnap = await getDoc(doc(db, "stores", storeId, "archive", analyticsMonth));
+      setArchiveEntries((archiveSnap.data()?.entries ?? []) as Entry[]);
+    }
+
+    setArchiveLoading(false);
+  }, [storeId, analyticsMonth]);
+
+  useEffect(() => {
+    if (panel === "analytics") fetchAnalytics();
+  }, [panel, fetchAnalytics]);
 
   const fetchUsers = useCallback(async () => {
     if (!isAdminOrOwner) return;
@@ -360,6 +393,37 @@ const [newUserError, setNewUserError] = useState("");
     // Admin can only assign unassigned users to their store
     return target.storeId === "";
   }
+
+  const analyticsBySalesperson = useMemo(() => {
+    const map = new Map<string, {
+      name: string;
+      email: string;
+      visits: number;
+      testDrive: number;
+      proposal: number;
+      sold: number;
+      deposit: number;
+      totalDuration: number;
+      durationCount: number;
+    }>();
+
+    for (const e of archiveEntries) {
+      const email = e.email?.toLowerCase() ?? "unknown";
+      const name = `${e.firstName} ${e.lastName}`.trim();
+      if (!map.has(email)) {
+        map.set(email, { name, email, visits: 0, testDrive: 0, proposal: 0, sold: 0, deposit: 0, totalDuration: 0, durationCount: 0 });
+      }
+      const s = map.get(email)!;
+      s.visits++;
+      if (e.visitOutcome?.testDrive) s.testDrive++;
+      if (e.visitOutcome?.proposal) s.proposal++;
+      if (e.visitOutcome?.sold) s.sold++;
+      if (e.visitOutcome?.deposit) s.deposit++;
+      if (e.durationSec) { s.totalDuration += e.durationSec; s.durationCount++; }
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.visits - a.visits);
+  }, [archiveEntries]);
 
   const matchSearch = (e: Entry) => {
     const q = search.trim().toLowerCase();
@@ -676,8 +740,9 @@ const ListCard = ({
 
             <SidebarItem
                 icon={<BarChart3 size={18} />}
-                text="Analytics (soon)"
-                disabled
+                text="Analytics"
+                active={panel === "analytics"}
+                onClick={() => { setPanel("analytics"); setSidebarOpen(true); }}
                 />
 
             <li className="flex-1" />
@@ -1011,11 +1076,91 @@ const ListCard = ({
               )}
 
               {panel === "analytics" && (
-                <div className="rounded-2xl border border-slate-200 bg-white p-5">
-                  <div className="text-lg font-semibold text-slate-800">Analytics</div>
-                  <div className="text-sm text-slate-400 mt-1">
-                    Placeholder for later: wait times, rep totals, etc.
+                <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-200 font-bold text-slate-700 flex items-center justify-between border-l-4 border-l-blue-500">
+                    <span>Analytics</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="month"
+                        value={analyticsMonth}
+                        onChange={(e) => setAnalyticsMonth(e.target.value)}
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-blue-500"
+                      />
+                      <button
+                        onClick={fetchAnalytics}
+                        className="text-xs text-slate-400 hover:text-slate-200 border border-slate-300 rounded-lg px-2 py-1"
+                      >
+                        Refresh
+                      </button>
+                    </div>
                   </div>
+
+                  {archiveLoading ? (
+                    <div className="px-4 py-4 text-sm text-slate-400">Loading...</div>
+                  ) : selectedSalesperson ? (
+                    (() => {
+                      const person = analyticsBySalesperson.find(p => p.email === selectedSalesperson);
+                      if (!person) return null;
+                      const avgDuration = person.durationCount > 0
+                        ? Math.round(person.totalDuration / person.durationCount)
+                        : 0;
+                      const avgMins = Math.floor(avgDuration / 60);
+                      const avgSecs = avgDuration % 60;
+                      return (
+                        <div className="p-4">
+                          <button
+                            onClick={() => setSelectedSalesperson(null)}
+                            className="text-xs text-blue-500 hover:text-blue-700 mb-4 flex items-center gap-1"
+                          >
+                            ← Back to all
+                          </button>
+                          <div className="text-lg font-bold text-slate-800 mb-1">{person.name}</div>
+                          <div className="text-xs text-slate-400 mb-4">{person.email}</div>
+                          <div className="grid grid-cols-3 gap-3 mb-4">
+                            {[
+                              { label: "Visits", value: person.visits, color: "bg-slate-50 border-slate-200" },
+                              { label: "Sold", value: person.sold, color: "bg-green-50 border-green-200" },
+                              { label: "Deposits", value: person.deposit, color: "bg-blue-50 border-blue-200" },
+                              { label: "Test Drives", value: person.testDrive, color: "bg-amber-50 border-amber-200" },
+                              { label: "Proposals", value: person.proposal, color: "bg-purple-50 border-purple-200" },
+                              { label: "Avg Duration", value: person.durationCount > 0 ? `${avgMins}m ${String(avgSecs).padStart(2,"0")}s` : "—", color: "bg-slate-50 border-slate-200" },
+                            ].map((stat) => (
+                              <div key={stat.label} className={`rounded-xl border px-3 py-3 ${stat.color}`}>
+                                <div className="text-xs font-bold text-slate-400 uppercase tracking-wide">{stat.label}</div>
+                                <div className="text-2xl font-black text-slate-700 mt-0.5">{stat.value}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()
+                  ) : analyticsBySalesperson.length === 0 ? (
+                    <div className="px-4 py-4 text-sm text-slate-400">No completed visits for this month.</div>
+                  ) : (
+                    <div className="divide-y divide-slate-100">
+                      {analyticsBySalesperson.map((person) => (
+                        <button
+                          key={person.email}
+                          onClick={() => setSelectedSalesperson(person.email)}
+                          className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 text-left"
+                        >
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 text-xs font-semibold shrink-0">
+                            {person.name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-bold text-slate-800">{person.name}</div>
+                            <div className="text-xs text-slate-400">{person.visits} visits</div>
+                          </div>
+                          <div className="flex gap-3 text-xs">
+                            <span className="text-green-600 font-bold">{person.sold} sold</span>
+                            <span className="text-amber-600 font-bold">{person.testDrive} TD</span>
+                            <span className="text-purple-600 font-bold">{person.proposal} prop</span>
+                          </div>
+                          <span className="text-slate-300 text-sm">›</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
