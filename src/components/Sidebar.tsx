@@ -29,12 +29,12 @@ export function Sidebar({
   return (
     <aside
       className={[
-        "hidden md:flex shrink-0 border-r min-h-screen transition-[width] duration-200",
-        dark
-          ? "border-slate-700 bg-slate-900"
-          : "border-slate-800 bg-slate-950/60 backdrop-blur",
-        expanded ? "w-72" : "w-16",
-        className,
+          "hidden md:flex shrink-0 border-r transition-[width] duration-200 sticky top-0 h-screen overflow-y-auto",
+          dark
+            ? "border-slate-700 bg-slate-900"
+            : "border-slate-800 bg-slate-950/60 backdrop-blur",
+          expanded ? "w-72" : "w-16",
+          className,
       ].join(" ")}
     >
       <nav className="h-full w-full flex flex-col">

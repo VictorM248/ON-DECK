@@ -107,43 +107,59 @@ export const onQueueUpdate = onDocumentWritten(
           ? "You're up next! 🚗"
           : `You're now #${position} in the queue.`;
 
-      const isExpoToken = typeof pushToken === 'string' && pushToken.startsWith('ExponentPushToken');
-      if (isExpoToken) {
-        console.log(`Skipping Expo token for ${entry.email} — native token required`);
-        continue;
-      }
-
       try {
-        await admin.messaging().send({
-          token: pushToken,
-          notification: {
-            title: "ON-DECK",
-            body,
-          },
-          android: {
-            notification: {
-              channelId: "queue-alerts",
-              sound: "default",
-              priority: "high",
-              vibrateTimingsMillis: [0, 250, 250, 250],
-              defaultVibrateTimings: false,
+        const isExpoToken = typeof pushToken === 'string' && pushToken.startsWith('ExponentPushToken');
+        
+        if (isExpoToken) {
+          const response = await fetch('https://exp.host/--/api/v2/push/send', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'Accept-Encoding': 'gzip, deflate',
             },
-          },
-          apns: {
-            payload: {
-              aps: {
+            body: JSON.stringify({
+              to: pushToken,
+              title: 'ON-DECK',
+              body,
+              sound: 'default',
+              priority: 'high',
+            }),
+          });
+          const result = await response.json();
+          console.log(`Expo notification sent to ${entry.email}:`, JSON.stringify(result));
+        } else {
+          await admin.messaging().send({
+            token: pushToken,
+            notification: {
+              title: "ON-DECK",
+              body,
+            },
+            android: {
+              notification: {
+                channelId: "queue-alerts",
                 sound: "default",
-                badge: 1,
-                contentAvailable: true,
+                priority: "high",
+                vibrateTimingsMillis: [0, 250, 250, 250],
+                defaultVibrateTimings: false,
               },
             },
-            headers: {
-              "apns-priority": "10",
-              "apns-push-type": "alert",
+            apns: {
+              payload: {
+                aps: {
+                  sound: "default",
+                  badge: 1,
+                  contentAvailable: true,
+                },
+              },
+              headers: {
+                "apns-priority": "10",
+                "apns-push-type": "alert",
+              },
             },
-          },
-        });
-        console.log(`Notification sent to ${entry.email} at position ${position}`);
+          });
+          console.log(`FCM notification sent to ${entry.email} at position ${position}`);
+        }
       } catch (err) {
         console.error(`Failed to send notification to ${entry.email}:`, err);
       }

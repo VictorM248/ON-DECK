@@ -4,6 +4,7 @@ import {
   type QueueEntry,
   type JoinType as FeedJoinType,
 } from "../lib/useStoreFeed";
+import { useStoreSettings } from "../lib/useStoreSettings";
 import { useStoreUsers } from "../lib/useStoreUsers";
 import { isAdminLike } from "../lib/roles";
 import { Calendar, Handshake, DoorOpen, Phone, Globe } from "lucide-react";
@@ -14,6 +15,13 @@ type Entry = QueueEntry & { originalQueueIndex?: number };
 type Role = "Sales" | "Admin";
 type JoinType = FeedJoinType;
 type EarlyReason = "service" | "parts" | "finance" | "other";
+
+type VisitOutcome = {
+  testDrive?: boolean;
+  proposal?: boolean;
+  sold?: boolean;
+  deposit?: boolean;
+};
 
 type QueueProps = {
   role: Role;
@@ -34,6 +42,7 @@ export default function Queue({
   registerAddHandler,
 }: QueueProps) {
   const { data, initIfMissing, updateFeed } = useStoreFeed(storeId, region);
+  const { settings, updateSetting } = useStoreSettings(storeId);
 
   const { managerUsers } = useStoreUsers(storeId);
 
@@ -56,6 +65,21 @@ export default function Queue({
     return () => window.clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    if (!settings.queueRotation) return;
+    if (!settings.rotationStartedAt) return;
+    if (queue.length < 2) return;
+
+    const THIRTY_MINUTES = 30 * 60 * 1000;
+    const elapsed = Date.now() - settings.rotationStartedAt;
+
+    if (elapsed < THIRTY_MINUTES) return;
+
+    const rotated = [...queue.slice(1), queue[0]];
+    setLists({ queue: rotated, active, completed });
+    updateSetting("rotationStartedAt", Date.now());
+  }, [now, settings.queueRotation, settings.rotationStartedAt, queue.length]);
+
   // modals
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [doneActiveId, setDoneActiveId] = useState<string | null>(null);
@@ -71,6 +95,10 @@ export default function Queue({
   const [selectedManagerIds, setSelectedManagerIds] = useState<string[]>([]);
 
   const [returnPosition, setReturnPosition] = useState<"top" | "bottom">("bottom");
+  const [outcomeModalOpen, setOutcomeModalOpen] = useState(false);
+  const [visitOutcome, setVisitOutcome] = useState<VisitOutcome>({});
+  const [, setPendingCompleteEntry] = useState<string | null>(null);
+  const [pendingReason, setPendingReason] = useState<EarlyReason | undefined>(undefined);
 
   // ---- Firestore write helper ----
   const stripUndefined = <T,>(obj: T): T =>
@@ -328,6 +356,10 @@ export default function Queue({
     setReturnPosition("bottom");
     setEarlyReasonModalOpen(false);
     setEarlyReason(null);
+    setOutcomeModalOpen(false);
+    setVisitOutcome({});
+    setPendingCompleteEntry(null);
+    setPendingReason(undefined);
   };
 
   const openTeamModal = (entryId: string) => {
@@ -360,7 +392,7 @@ export default function Queue({
     });
   };
 
-  const handleConfirmComplete = async (reason?: EarlyReason) => {
+  const handleConfirmComplete = async (reason?: EarlyReason, outcome?: VisitOutcome) => {
     if (!completeEntryId) return;
     const entry = active.find((e) => e.id === completeEntryId);
     if (!entry) {
@@ -392,6 +424,7 @@ export default function Queue({
       earlyReason: reason ?? earlyReason ?? undefined,
       serviceEnd: end,
       durationSec,
+      visitOutcome: outcome ?? visitOutcome,
     };
 
     const canSendTop = entry.serviceStart
@@ -576,7 +609,7 @@ export default function Queue({
               return (
                 <div className="flex flex-col gap-4">
                   <div className="flex flex-col gap-3">
-                    {canSendTop && (
+                    {canSendTop && !settings.lockQueuePosition && (
                       <button
                         onClick={() => void moveActiveBackToQueueOriginal()}
                         className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
@@ -585,7 +618,7 @@ export default function Queue({
                         <span className="font-semibold">original spot</span> in queue
                       </button>
                     )}
-                    {!canSendTop && (
+                    {!canSendTop && !settings.lockQueuePosition && (
                       <p className="text-xs text-slate-400 italic">
                         This option is only available within the first 2 minutes.
                       </p>
@@ -666,7 +699,7 @@ export default function Queue({
               return (
                 <>
                   <div className="flex flex-col gap-2">
-                    {canSendTop && (
+                    {canSendTop && !settings.lockQueuePosition && (
                       <RunnerButton
                         selected={returnPosition === "top"}
                         onClick={() => setReturnPosition("top")}
@@ -735,11 +768,14 @@ export default function Queue({
                   const canSendTop = e?.serviceStart
                     ? now - e.serviceStart < 2 * 60 * 1000
                     : true;
-                  if (returnPosition === "top" && canSendTop) {
+                  if (canSendTop && (returnPosition === "top" || settings.lockQueuePosition)) {
                     setEarlyReasonModalOpen(true);
                     return;
                   }
-                  void handleConfirmComplete();
+                  setPendingCompleteEntry(completeEntryId);
+                  setPendingReason(undefined);
+                  setVisitOutcome({});
+                  setOutcomeModalOpen(true);
                 }}
                 className="flex-1 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
               >
@@ -781,7 +817,10 @@ export default function Queue({
                   onClick={() => {
                     setEarlyReason(key);
                     setEarlyReasonModalOpen(false);
-                    void handleConfirmComplete(key);
+                    setPendingCompleteEntry(completeEntryId);
+                    setPendingReason(key);
+                    setVisitOutcome({});
+                    setOutcomeModalOpen(true);
                   }}
                   className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm font-medium text-slate-100 hover:bg-slate-700"
                 >
@@ -878,13 +917,354 @@ export default function Queue({
         </div>
       )}
 
+      {/* OUTCOME MODAL */}
+      {outcomeModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={closeCompleteModal}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold mb-1 text-slate-100">Visit outcome</h2>
+            <p className="text-sm text-slate-400 mb-5">What happened during this visit?</p>
+
+            <div className="flex flex-col gap-3 mb-6">
+              {([
+                ["testDrive", "Test Drive"],
+                ["proposal", "Proposal"],
+                ["sold", "Sold"],
+                ["deposit", "Deposit"],
+              ] as const).map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-200">{label}</span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setVisitOutcome((prev) => ({ ...prev, [key]: false }))}
+                      className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${
+                        visitOutcome[key] === false
+                          ? "bg-red-600 border-red-500 text-white"
+                          : "bg-slate-800 border-slate-600 text-slate-400 hover:border-red-500/50"
+                      }`}
+                    >
+                      ✕
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVisitOutcome((prev) => ({ ...prev, [key]: true }))}
+                      className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${
+                        visitOutcome[key] === true
+                          ? "bg-green-600 border-green-500 text-white"
+                          : "bg-slate-800 border-slate-600 text-slate-400 hover:border-green-500/50"
+                      }`}
+                    >
+                      ✓
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={closeCompleteModal}
+                className="flex-1 rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setOutcomeModalOpen(false);
+                  void handleConfirmComplete(pendingReason, visitOutcome);
+                }}
+                className="flex-1 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
+              >
+                Save visit
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setOutcomeModalOpen(false);
+                void handleConfirmComplete(pendingReason, visitOutcome);
+              }}
+              className="mt-3 w-full text-xs text-slate-500 hover:text-slate-300"
+            >
+              Skip
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* OUTCOME MODAL */}
+      {outcomeModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={closeCompleteModal}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold mb-1 text-slate-100">Visit outcome</h2>
+            <p className="text-sm text-slate-400 mb-5">What happened during this visit?</p>
+
+            <div className="flex flex-col gap-3 mb-6">
+              {([
+                ["testDrive", "Test Drive"],
+                ["proposal", "Proposal"],
+                ["sold", "Sold"],
+                ["deposit", "Deposit"],
+              ] as const).map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-200">{label}</span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setVisitOutcome((prev) => ({ ...prev, [key]: false }))}
+                      className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${
+                        visitOutcome[key] === false
+                          ? "bg-red-600 border-red-500 text-white"
+                          : "bg-slate-800 border-slate-600 text-slate-400 hover:border-red-500/50"
+                      }`}
+                    >
+                      ✕
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVisitOutcome((prev) => ({ ...prev, [key]: true }))}
+                      className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${
+                        visitOutcome[key] === true
+                          ? "bg-green-600 border-green-500 text-white"
+                          : "bg-slate-800 border-slate-600 text-slate-400 hover:border-green-500/50"
+                      }`}
+                    >
+                      ✓
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={closeCompleteModal}
+                className="flex-1 rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setOutcomeModalOpen(false);
+                  void handleConfirmComplete(pendingReason, visitOutcome);
+                }}
+                className="flex-1 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
+              >
+                Save visit
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setOutcomeModalOpen(false);
+                void handleConfirmComplete(pendingReason, visitOutcome);
+              }}
+              className="mt-3 w-full text-xs text-slate-500 hover:text-slate-300"
+            >
+              Skip
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* OUTCOME MODAL */}
+      {outcomeModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={closeCompleteModal}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold mb-1 text-slate-100">Visit outcome</h2>
+            <p className="text-sm text-slate-400 mb-5">What happened during this visit?</p>
+
+            <div className="flex flex-col gap-3 mb-6">
+              {([
+                ["testDrive", "Test Drive"],
+                ["proposal", "Proposal"],
+                ["sold", "Sold"],
+                ["deposit", "Deposit"],
+              ] as const).map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-200">{label}</span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setVisitOutcome((prev) => ({ ...prev, [key]: false }))}
+                      className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${
+                        visitOutcome[key] === false
+                          ? "bg-red-600 border-red-500 text-white"
+                          : "bg-slate-800 border-slate-600 text-slate-400 hover:border-red-500/50"
+                      }`}
+                    >
+                      ✕
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVisitOutcome((prev) => ({ ...prev, [key]: true }))}
+                      className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${
+                        visitOutcome[key] === true
+                          ? "bg-green-600 border-green-500 text-white"
+                          : "bg-slate-800 border-slate-600 text-slate-400 hover:border-green-500/50"
+                      }`}
+                    >
+                      ✓
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={closeCompleteModal}
+                className="flex-1 rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setOutcomeModalOpen(false);
+                  void handleConfirmComplete(pendingReason, visitOutcome);
+                }}
+                className="flex-1 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
+              >
+                Save visit
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setOutcomeModalOpen(false);
+                void handleConfirmComplete(pendingReason, visitOutcome);
+              }}
+              className="mt-3 w-full text-xs text-slate-500 hover:text-slate-300"
+            >
+              Skip
+            </button>
+          </div>
+        </div>
+      )}
+
+      {outcomeModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={closeCompleteModal}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold mb-1 text-slate-100">Visit outcome</h2>
+            <p className="text-sm text-slate-400 mb-5">What happened during this visit?</p>
+
+            <div className="flex flex-col gap-3 mb-6">
+              {([
+                ["testDrive", "Test Drive"],
+                ["proposal", "Proposal"],
+                ["sold", "Sold"],
+                ["deposit", "Deposit"],
+              ] as const).map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-200">{label}</span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setVisitOutcome((prev) => ({ ...prev, [key]: false }))}
+                      className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${
+                        visitOutcome[key] === false
+                          ? "bg-red-600 border-red-500 text-white"
+                          : "bg-slate-800 border-slate-600 text-slate-400 hover:border-red-500/50"
+                      }`}
+                    >
+                      ✕
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVisitOutcome((prev) => ({ ...prev, [key]: true }))}
+                      className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${
+                        visitOutcome[key] === true
+                          ? "bg-green-600 border-green-500 text-white"
+                          : "bg-slate-800 border-slate-600 text-slate-400 hover:border-green-500/50"
+                      }`}
+                    >
+                      ✓
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={closeCompleteModal}
+                className="flex-1 rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setOutcomeModalOpen(false);
+                  void handleConfirmComplete(pendingReason, visitOutcome);
+                }}
+                className="flex-1 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
+              >
+                Save visit
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setOutcomeModalOpen(false);
+                void handleConfirmComplete(pendingReason, visitOutcome);
+              }}
+              className="mt-3 w-full text-xs text-slate-500 hover:text-slate-300"
+            >
+              Skip
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* MAIN LAYOUT */}
       <div className="w-full flex flex-col lg:flex-row gap-10 mt-3">
         {/* LEFT — QUEUE */}
         <div className="w-full lg:w-1/3 space-y-4">
           <div className="rounded-2xl border border-slate-700 bg-slate-900 p-2 shadow-lg">
             <div className="px-3 py-2 flex items-center justify-between text-sm font-semibold text-slate-200">
-              <span>In Queue ({queue.length} waiting)</span>
+              <div className="flex items-center gap-3">
+                <span>In Queue ({queue.length} waiting)</span>
+                {settings.queueRotation && settings.rotationStartedAt && (() => {
+                  const THIRTY_MINUTES = 30 * 60 * 1000;
+                  const elapsed = now - settings.rotationStartedAt;
+                  const remaining = Math.max(0, THIRTY_MINUTES - elapsed);
+                  const mins = Math.floor(remaining / 60000);
+                  const secs = Math.floor((remaining % 60000) / 1000);
+                  return (
+                    <span className="text-xs font-medium text-amber-400 border border-amber-500/30 bg-blue-500/10 rounded-full px-2 py-0.5">
+                      ↻ {mins}m {secs.toString().padStart(2, "0")}s
+                    </span>
+                  );
+                })()}
+              </div>
               <div className="flex gap-2">
                 {isAdminLike(role) && (
                   <button

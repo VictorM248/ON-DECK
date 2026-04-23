@@ -19,6 +19,12 @@ export type QueueEntry = {
   managers?: string[];
   teamLabel?: string;
   earlyReason?: "service" | "parts" | "finance" | "other";
+  visitOutcome?: {
+    testDrive?: boolean;
+    proposal?: boolean;
+    sold?: boolean;
+    deposit?: boolean;
+  };
 };
 
 type StoreFeed = {

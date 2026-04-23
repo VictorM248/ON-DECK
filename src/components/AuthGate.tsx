@@ -110,16 +110,45 @@ export function AuthGate({ children, onStoreId }: { children: React.ReactNode, o
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="w-full max-w-sm rounded-xl border p-6 space-y-4">
-          <div className="text-lg font-semibold">Sign in</div>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+        <div className="w-full max-w-md text-center">
+          {/* Dalton icon + ON-DECK */}
+          <div className="flex items-center justify-center gap-4 mb-6">
+            <img src="/daltonicon.png" alt="Dalton" className="h-16 w-16 object-contain rounded-xl" />
+            <div className="w-px h-12 bg-slate-300" />
+            <div className="text-4xl font-black text-slate-900 tracking-widest">ON-DECK</div>
+          </div>
 
-          <button
-            className="w-full rounded bg-black text-white py-2"
-            onClick={() => signInWithPopup(auth, microsoftProvider)}
-          >
-            Continue with Microsoft
-          </button>
+          {/* Subtitle */}
+          <div className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-8">
+            Dalton Motors Queue Management
+          </div>
+
+          {/* Store logos */}
+          <div className="mb-8">
+            <img src="/all-logos.png" alt="Toyota · Hyundai · Subaru" className="w-full max-w-md object-contain mx-auto rounded-xl" />
+          </div>
+
+          {/* Sign in card */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
+            <div className="text-lg font-black text-slate-800 mb-1">Welcome back</div>
+            <div className="text-sm text-slate-400 mb-6">Sign in with your Dalton Corp account</div>
+            <button
+              onClick={() => signInWithPopup(auth, microsoftProvider)}
+              className="w-full flex items-center justify-center gap-3 bg-[#1e3a5f] hover:bg-[#16304f] transition rounded-xl py-3 text-sm font-bold text-white"
+            >
+              <svg width="18" height="18" viewBox="0 0 21 21" fill="none">
+                <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+              </svg>
+              Continue with Microsoft
+            </button>
+            <div className="text-xs text-slate-300 mt-4">@daltoncorp.com accounts only</div>
+          </div>
+
+          <div className="text-xs text-slate-300 mt-6">© 2026 DaltonMotors </div>
         </div>
       </div>
     );
