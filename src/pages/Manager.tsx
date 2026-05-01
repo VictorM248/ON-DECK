@@ -896,7 +896,7 @@ const ListCard = ({
                               const ref = doc(db, "stores", storeId, "regions", region);
                               updateDoc(ref, { queue: queue.filter((q) => q.id !== e.id) });
                             }}
-                            className="text-xs text-red-400 hover:text-red-300 ml-2"
+                            className="text-xs text-white bg-red-600 hover:bg-red-500 rounded-full px-3 py-1 ml-2"
                           >
                             Remove
                           </button>

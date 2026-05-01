@@ -7,7 +7,7 @@ import {
 import { useStoreSettings } from "../lib/useStoreSettings";
 import { useStoreUsers } from "../lib/useStoreUsers";
 import { isAdminLike } from "../lib/roles";
-import { Calendar, Handshake, DoorOpen, Phone, Globe } from "lucide-react";
+import { Calendar, Handshake, DoorOpen, Phone, Globe, UtensilsCrossed, CalendarX } from "lucide-react";
 import type { ReactElement } from "react";
 import RunnerButton from "../components/RunnerButton";
 
@@ -574,6 +574,27 @@ export default function Queue({
                 <Globe size={16} />
                 <span className="font-medium">Appointment (Online)</span>
               </button>
+
+              <div className="flex gap-2 mt-1">
+                <button
+                  onClick={async () => {
+                    await removeFromQueue(selectedEntryId!);
+                    setSelectedEntryId(null);
+                  }}
+                  className="flex-1 rounded-full border border-amber-500/40 bg-amber-600/20 px-4 py-2 text-sm font-medium text-amber-200 hover:bg-amber-600/30"
+                >
+                  <UtensilsCrossed size={16} /> Out Lunch
+                </button>
+                <button
+                  onClick={async () => {
+                    await removeFromQueue(selectedEntryId!);
+                    setSelectedEntryId(null);
+                  }}
+                  className="flex-1 rounded-full border border-red-500/40 bg-red-600/20 px-4 py-2 text-sm font-medium text-red-200 hover:bg-red-600/30"
+                >
+                  <CalendarX size={16} /> Out Day
+                </button>
+              </div>
             </div>
             <button
               onClick={() => setSelectedEntryId(null)}

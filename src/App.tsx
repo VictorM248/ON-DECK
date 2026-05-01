@@ -94,9 +94,13 @@ function AppInner({ storeId }: { storeId: string }) {
         return;
       }
 
+      const emailUid = (u.email ?? "").toLowerCase().replace(/[^a-z0-9]/g, "_");
       const userRef = doc(db, "users", u.uid);
+      const emailRef = doc(db, "users", emailUid);
+
       const snap = await getDoc(userRef);
-      const r = (snap.data()?.role ?? "").toString().toLowerCase();
+      const finalSnap = snap.exists() ? snap : await getDoc(emailRef);
+      const r = (finalSnap.data()?.role ?? "").toString().toLowerCase();
 
       if (r !== "admin" && r !== "owner") {
         alert("Not authorized for Admin view.");
