@@ -378,8 +378,10 @@ const [newUserError, setNewUserError] = useState("");
 
   // What roles can this user assign
   const assignableRoles = isOwner
-    ? ["sales", "manager", "admin"]
-    : ["sales", "manager"];
+  ? ["sales", "manager", "admin", "owner"]
+  : isAdminOrOwner
+  ? ["sales", "manager", "admin"]
+  : ["sales", "manager"];
 
   // Can this user remove a target user
   function canRemove(target: UserRecord) {
