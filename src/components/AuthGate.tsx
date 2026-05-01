@@ -17,6 +17,7 @@ export function AuthGate({ children, onStoreId }: { children: React.ReactNode, o
   const [profileReady, setProfileReady] = useState(false);
   const [nameModalOpen, setNameModalOpen] = useState(false);
   const [displayNameInput, setDisplayNameInput] = useState("");
+  const [isUnassigned, setIsUnassigned] = useState(false);
 
   useEffect(() => {
     return onAuthStateChanged(auth, async (u) => {
@@ -71,7 +72,8 @@ export function AuthGate({ children, onStoreId }: { children: React.ReactNode, o
       const latestSnap = snap.exists() ? snap : await getDoc(userRef);
       const data = latestSnap.data() || {};
       const storeId = (data.storeId ?? "").toString().trim();
-      if (onStoreId) onStoreId(storeId);
+        if (onStoreId) onStoreId(storeId);
+        if (!storeId) setIsUnassigned(true);
 
       const existingName = (data.displayName ?? "").toString().trim();
 
@@ -197,7 +199,20 @@ export function AuthGate({ children, onStoreId }: { children: React.ReactNode, o
       </div>
     )}
 
-    {profileReady ? children : null}
+    {profileReady && isUnassigned ? (
+  <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+    <div className="text-center">
+      <div className="text-2xl font-black text-slate-800 mb-2">You're not assigned to a store yet</div>
+      <div className="text-sm text-slate-400 mb-6">Contact your manager to get access.</div>
+      <button
+        onClick={() => signOut(auth)}
+        className="text-xs text-slate-400 underline"
+      >
+        Sign out
+      </button>
+    </div>
+  </div>
+) : profileReady ? children : null}
   </>
 );
 }
