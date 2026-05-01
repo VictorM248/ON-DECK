@@ -270,6 +270,14 @@ export default function Queue({
         return;
       }
 
+      const alreadyInQueue = queue.some((e) => e.email.toLowerCase() === em);
+      const alreadyActive = active.some((e) => e.email.toLowerCase() === em);
+
+      if (alreadyInQueue || alreadyActive) {
+        alert("You're already in the queue or currently with a customer.");
+        return;
+      }
+
       const nextQueue: Entry[] = [
         ...queue,
         {

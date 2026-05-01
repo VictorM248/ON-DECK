@@ -885,10 +885,22 @@ const ListCard = ({
                             {initials(e)}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="text-sm font-bold text-slate-800 truncate">{fullLabel(e)}</div>
-                            {e.note ? <div className="text-xs text-slate-400 italic truncate">{e.note}</div> : null}
-                            <div className="text-[11px] text-slate-400">{e.joinedAt ? `Joined ${fmtTime(e.joinedAt)}` : ""}</div>
-                          </div>
+                          <div className="text-sm font-bold text-slate-800 truncate">{fullLabel(e)}</div>
+                          {e.note ? <div className="text-xs text-slate-400 italic truncate">{e.note}</div> : null}
+                          <div className="text-[11px] text-slate-400">{e.joinedAt ? `Joined ${fmtTime(e.joinedAt)}` : ""}</div>
+                        </div>
+                        {isAdminOrOwner && (
+                          <button
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              const ref = doc(db, "stores", storeId, "regions", region);
+                              updateDoc(ref, { queue: queue.filter((q) => q.id !== e.id) });
+                            }}
+                            className="text-xs text-red-400 hover:text-red-300 ml-2"
+                          >
+                            Remove
+                          </button>
+                        )}
                         </div>
                       ))
                     )}
