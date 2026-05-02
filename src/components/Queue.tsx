@@ -578,10 +578,13 @@ export default function Queue({
               <div className="flex gap-2 mt-1">
                 <button
                   onClick={async () => {
-                    await removeFromQueue(selectedEntryId!);
+                    const nextQueue = queue.map((e) =>
+                      e.id === selectedEntryId ? { ...e, onLunch: true } : e
+                    );
+                    await setLists({ queue: nextQueue, active, completed });
                     setSelectedEntryId(null);
                   }}
-                  className="flex-1 rounded-full border border-amber-500/40 bg-amber-600/20 px-4 py-2 text-sm font-medium text-amber-200 hover:bg-amber-600/30"
+                  className="flex-1 flex items-center justify-center gap-2 rounded-full border border-amber-500/40 bg-amber-600/20 px-4 py-2 text-sm font-medium text-amber-200 hover:bg-amber-600/30"
                 >
                   <UtensilsCrossed size={16} /> Out Lunch
                 </button>
@@ -1321,8 +1324,9 @@ export default function Queue({
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <div className="font-medium text-slate-100">
+                        <div className="flex items-center gap-2 font-medium text-slate-100">
                           {i + 1}. {e.firstName} {e.lastName}
+                          {e.onLunch && <UtensilsCrossed size={14} className="text-amber-400" />}
                         </div>
                         {other && (
                           <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/40 bg-blue-600/20 px-2 py-0.5 text-[11px] text-blue-200">

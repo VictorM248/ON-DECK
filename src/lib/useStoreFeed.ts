@@ -19,6 +19,7 @@ export type QueueEntry = {
   managers?: string[];
   teamLabel?: string;
   earlyReason?: "service" | "parts" | "finance" | "other";
+  onLunch?: boolean;
   visitOutcome?: {
     testDrive?: boolean;
     proposal?: boolean;

@@ -888,6 +888,15 @@ const ListCard = ({
                           <div className="text-sm font-bold text-slate-800 truncate">{fullLabel(e)}</div>
                           {e.note ? <div className="text-xs text-slate-400 italic truncate">{e.note}</div> : null}
                           <div className="text-[11px] text-slate-400">{e.joinedAt ? `Joined ${fmtTime(e.joinedAt)}` : ""}</div>
+                          {e.joinedAt && (() => {
+                            const mins = minutesSince(e.joinedAt);
+                            const s = barStyle(mins);
+                            return (
+                              <div className="mt-1.5 h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
+                                <div className="h-full transition-all" style={{ width: s.width, background: s.background }} />
+                              </div>
+                            );
+                          })()}
                         </div>
                         {isAdminOrOwner && (
                           <button
