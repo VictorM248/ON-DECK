@@ -1325,9 +1325,13 @@ export default function Queue({
                     <div>
                       <div className="flex items-center gap-2">
                         <div className="flex items-center gap-2 font-medium text-slate-100">
-                          {i + 1}. {e.firstName} {e.lastName}
-                          {e.onLunch && <UtensilsCrossed size={14} className="text-amber-400" />}
-                        </div>
+                        {i + 1}. {e.firstName} {e.lastName}
+                        {e.onLunch && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-600/20 px-2 py-0.5 text-xs text-amber-300">
+                            <UtensilsCrossed size={11} /> Out Lunch
+                          </span>
+                        )}
+                      </div>
                         {other && (
                           <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/40 bg-blue-600/20 px-2 py-0.5 text-[11px] text-blue-200">
                             <Handshake size={12} />
