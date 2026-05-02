@@ -493,11 +493,25 @@ const ListCard = ({
 }) => (
   <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
     <div className="px-4 py-3 border-b border-slate-200 font-bold text-slate-700 flex items-center justify-between border-l-4 border-l-blue-500">
-      <span>{title}</span>
-      {search.trim() ? (
-        <span className="text-xs text-slate-400">Filtered</span>
-      ) : null}
+    <div className="flex items-center gap-3">
+      <span>Queue</span>
+      {settings.queueRotation && settings.rotationStartedAt && (() => {
+        const THIRTY_MINUTES = 30 * 60 * 1000;
+        const elapsed = now - settings.rotationStartedAt;
+        const remaining = Math.max(0, THIRTY_MINUTES - elapsed);
+        const mins = Math.floor(remaining / 60000);
+        const secs = Math.floor((remaining % 60000) / 1000);
+        return (
+          <span className="text-xs font-medium text-amber-600 border border-amber-300 bg-amber-50 rounded-full px-2 py-0.5">
+            ↻ {mins}m {secs.toString().padStart(2, "0")}s
+          </span>
+        );
+      })()}
     </div>
+    {search.trim() ? (
+      <span className="text-xs text-slate-400">Filtered</span>
+    ) : null}
+  </div>
 
     <div className="divide-y divide-slate-100">
       {rows.length === 0 ? (
@@ -888,15 +902,6 @@ const ListCard = ({
                           <div className="text-sm font-bold text-slate-800 truncate">{fullLabel(e)}</div>
                           {e.note ? <div className="text-xs text-slate-400 italic truncate">{e.note}</div> : null}
                           <div className="text-[11px] text-slate-400">{e.joinedAt ? `Joined ${fmtTime(e.joinedAt)}` : ""}</div>
-                          {e.joinedAt && (() => {
-                            const mins = minutesSince(e.joinedAt);
-                            const s = barStyle(mins);
-                            return (
-                              <div className="mt-1.5 h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
-                                <div className="h-full transition-all" style={{ width: s.width, background: s.background }} />
-                              </div>
-                            );
-                          })()}
                         </div>
                         {isAdminOrOwner && (
                           <button
