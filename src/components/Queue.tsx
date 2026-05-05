@@ -575,7 +575,7 @@ export default function Queue({
                 <span className="font-medium">Appointment (Online)</span>
               </button>
 
-              <div className="flex gap-2 mt-1">
+              <div className="flex gap-2 mt-1 justify-center">
                 <button
                   onClick={async () => {
                     const nextQueue = queue.map((e) =>
@@ -584,7 +584,7 @@ export default function Queue({
                     await setLists({ queue: nextQueue, active, completed });
                     setSelectedEntryId(null);
                   }}
-                  className="flex-1 flex items-center justify-center gap-2 rounded-full border border-amber-500/40 bg-amber-600/20 px-4 py-2 text-sm font-medium text-amber-200 hover:bg-amber-600/30"
+                  className="flex items-center justify-center gap-2 rounded-full border border-amber-500/40 bg-amber-600/20 px-4 py-2 text-sm font-medium text-amber-200 hover:bg-amber-600/30 whitespace-nowrap"
                 >
                   <UtensilsCrossed size={16} /> Out Lunch
                 </button>
@@ -596,7 +596,7 @@ export default function Queue({
                     await setLists({ queue: nextQueue, active, completed });
                     setSelectedEntryId(null);
                   }}
-                  className="flex-1 flex items-center justify-center gap-2 rounded-full border border-green-500/40 bg-green-600/20 px-4 py-2 text-sm font-medium text-green-200 hover:bg-green-600/30"
+                  className="flex items-center justify-center gap-2 rounded-full border border-green-500/40 bg-green-600/20 px-4 py-2 text-sm font-medium text-green-200 hover:bg-green-600/30 whitespace-nowrap"
                 >
                   <UtensilsCrossed size={16} /> In Lunch
                 </button>
@@ -605,7 +605,7 @@ export default function Queue({
                     await removeFromQueue(selectedEntryId!);
                     setSelectedEntryId(null);
                   }}
-                  className="flex-1 flex items-center justify-center gap-2 rounded-full border border-red-500/40 bg-red-600/20 px-4 py-2 text-sm font-medium text-red-200 hover:bg-red-600/30"
+                  className="flex items-center justify-center gap-2 rounded-full border border-red-500/40 bg-red-600/20 px-4 py-2 text-sm font-medium text-red-200 hover:bg-red-600/30 whitespace-nowrap"
                 >
                   <CalendarX size={16} /> Out Day
                 </button>
