@@ -335,6 +335,12 @@ export default function Queue({
       },
     ];
     await setLists({ queue: nextQueue, active: nextActive, completed });
+
+    // Reset rotation timer only if the #1 person in queue was moved
+    if (idx === 0 && settings.queueRotation) {
+      await updateSetting("rotationStartedAt", Date.now());
+    }
+
     setSelectedEntryId(null);
   };
 
