@@ -301,12 +301,18 @@ export default function Queue({
   }, [registerAddHandler, addFromModal]);
 
   const removeFromQueue = async (id: string) => {
-    await setLists({
-      queue: queue.filter((e) => e.id !== id),
-      active,
-      completed,
-    });
-  };
+  const idx = queue.findIndex((e) => e.id === id);
+  await setLists({
+    queue: queue.filter((e) => e.id !== id),
+    active,
+    completed,
+  });
+
+  // Reset rotation timer if the #1 person was removed
+  if (idx === 0 && settings.queueRotation) {
+    await updateSetting("rotationStartedAt", Date.now());
+  }
+};
 
   const clearQueue = async () => {
     if (window.confirm("Clear the entire queue?")) {
