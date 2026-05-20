@@ -34,7 +34,7 @@ const storeNameMap: Record<string, { label: string; color: string }> = {
   "store-hyundai": { label: "HYUNDAI", color: "#002C5F" },
 };
 
-function AppInner({ storeId }: { storeId: string }) {
+function AppInner({ storeId, userRole }: { storeId: string; userRole: string }) {
   const [role, setRole] = useState<Role>(
     () => (localStorage.getItem("role") as Role) ?? "Sales"
   );
@@ -615,6 +615,7 @@ function AppInner({ storeId }: { storeId: string }) {
                 disabled={role === "Sales"}
               />
             )}
+            {userRole !== "sales" && (
             <button
               onClick={() =>
                 isAdminLike(role) ? setAddChooserOpen(true) : openAddModal()
@@ -623,6 +624,7 @@ function AppInner({ storeId }: { storeId: string }) {
             >
               <span className="text-6xl font-light leading-none -mt-3">+</span>
             </button>
+          )}
           </div>
 
           {/* Right */}
@@ -655,6 +657,7 @@ function AppInner({ storeId }: { storeId: string }) {
           role={role}
           storeId={storeId}
           region={region}
+          userRole={userRole}
           onAddSavedName={(fn, ln, em) => addSavedName(fn, ln, em)}
           registerAddHandler={(fn) => {
             queueAddRef.current = fn;
@@ -668,11 +671,12 @@ function AppInner({ storeId }: { storeId: string }) {
 
 export default function App() {
   const [storeId, setStoreId] = useState<string>("");
+  const [userRole, setUserRole] = useState<string>("sales");
 
   return (
-    <AuthGate onStoreId={setStoreId}>
+    <AuthGate onStoreId={setStoreId} onRole={setUserRole}>
       {storeId ? (
-        <AppInner storeId={storeId} />
+    <AppInner storeId={storeId} userRole={userRole} />
       ) : (
         <div className="min-h-screen flex items-center justify-center bg-slate-900 text-slate-100">
           <div className="text-center space-y-2">

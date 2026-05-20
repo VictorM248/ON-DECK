@@ -27,6 +27,7 @@ type QueueProps = {
   role: Role;
   storeId: string;
   region: string;
+  userRole?: string;
   onAddSavedName?: (firstName: string, lastName: string, email: string) => void;
   registerAddHandler?: (
     fn: (firstName: string, lastName: string, email: string, note: string) => void
@@ -38,6 +39,7 @@ export default function Queue({
   role,
   storeId,
   region,
+  userRole,
   onAddSavedName,
   registerAddHandler,
 }: QueueProps) {
@@ -1337,11 +1339,11 @@ export default function Queue({
             {queue.map((e, i) => {
               const other = teamedWith(e);
               return (
-                <div
-                  key={e.id}
-                  className="flex items-center justify-between border-t border-slate-800 px-4 py-3 cursor-pointer hover:bg-slate-800 border-l-2 border-l-blue-500"
-                  onClick={() => openJoinTypeModal(e.id)}
-                >
+                  <div
+                    key={e.id}
+                    className={`flex items-center justify-between border-t border-slate-800 px-4 py-3 border-l-2 border-l-blue-500 ${userRole !== "sales" ? "cursor-pointer hover:bg-slate-800" : ""}`}
+                    onClick={() => userRole !== "sales" && openJoinTypeModal(e.id)}
+                  >
                   <div className="flex items-center gap-3">
                     <div className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold ${avatarColor(e.firstName)}`}>
                       {initials(e)}

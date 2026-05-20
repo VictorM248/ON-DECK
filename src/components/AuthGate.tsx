@@ -10,7 +10,7 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 
-export function AuthGate({ children, onStoreId }: { children: React.ReactNode, onStoreId?: (storeId: string) => void }) {
+export function AuthGate({ children, onStoreId, onRole }: { children: React.ReactNode, onStoreId?: (storeId: string) => void, onRole?: (role: string) => void }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -72,7 +72,9 @@ export function AuthGate({ children, onStoreId }: { children: React.ReactNode, o
       const latestSnap = snap.exists() ? snap : await getDoc(userRef);
       const data = latestSnap.data() || {};
       const storeId = (data.storeId ?? "").toString().trim();
+        const role = (data.role ?? "sales").toString().toLowerCase();
         if (onStoreId) onStoreId(storeId);
+        if (onRole) onRole(role);
         if (!storeId) setIsUnassigned(true);
 
       const existingName = (data.displayName ?? "").toString().trim();
