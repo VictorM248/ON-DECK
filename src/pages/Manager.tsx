@@ -193,9 +193,22 @@ const barStyle = (mins: number) => {
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [analyticsMonth, setAnalyticsMonth] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  });
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+});
+const [rangeMode, setRangeMode] = useState<"day" | "week" | "month">("month");
+const [analyticsDay, setAnalyticsDay] = useState(() => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+});
+const [analyticsWeek, setAnalyticsWeek] = useState(() => {
+  const now = new Date();
+  const year = now.getFullYear();
+  // ISO week number
+  const startOfYear = new Date(year, 0, 1);
+  const weekNum = Math.ceil(((now.getTime() - startOfYear.getTime()) / 86400000 + startOfYear.getDay() + 1) / 7);
+  return `${year}-W${String(weekNum).padStart(2, "0")}`;
+});
   const [archiveEntries, setArchiveEntries] = useState<Entry[]>([]);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [selectedSalesperson, setSelectedSalesperson] = useState<string | null>(null);
@@ -240,26 +253,64 @@ const [newUserError, setNewUserError] = useState("");
   }, [queue, storeId, region]);
 
   const fetchAnalytics = useCallback(async () => {
-    if (!storeId) return;
-    setArchiveLoading(true);
-    setSelectedSalesperson(null);
+  if (!storeId) return;
+  setArchiveLoading(true);
+  setSelectedSalesperson(null);
 
-    const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-    if (analyticsMonth === currentMonth) {
-      const north = await getDoc(doc(db, "stores", storeId, "regions", "North"));
-      const south = await getDoc(doc(db, "stores", storeId, "regions", "South"));
-      const northEntries = (north.data()?.completed ?? []) as Entry[];
-      const southEntries = (south.data()?.completed ?? []) as Entry[];
-      setArchiveEntries([...northEntries, ...southEntries]);
-    } else {
-      const archiveSnap = await getDoc(doc(db, "stores", storeId, "archive", analyticsMonth));
-      setArchiveEntries((archiveSnap.data()?.entries ?? []) as Entry[]);
-    }
+  // Compute start/end ms for filtering
+  let filterStart: number | null = null;
+  let filterEnd: number | null = null;
 
-    setArchiveLoading(false);
-  }, [storeId, analyticsMonth]);
+  if (rangeMode === "day") {
+    const d = new Date(analyticsDay + "T00:00:00");
+    filterStart = d.getTime();
+    filterEnd = d.getTime() + 86400000;
+  } else if (rangeMode === "week") {
+    // Parse YYYY-Www
+    const [yearStr, weekStr] = analyticsWeek.split("-W");
+    const year = parseInt(yearStr);
+    const week = parseInt(weekStr);
+    const jan1 = new Date(year, 0, 1);
+    const daysToMonday = (8 - jan1.getDay()) % 7;
+    const firstMonday = new Date(jan1.getTime() + daysToMonday * 86400000);
+    filterStart = firstMonday.getTime() + (week - 1) * 7 * 86400000;
+    filterEnd = filterStart + 7 * 86400000;
+  }
+
+  // Determine which month(s) to fetch from Firestore
+  const monthToFetch = rangeMode === "month"
+    ? analyticsMonth
+    : rangeMode === "day"
+    ? analyticsDay.slice(0, 7)
+    : analyticsWeek.slice(0, 4) + "-" + String(parseInt(analyticsWeek.slice(6)) > 0 ? analyticsWeek.slice(6) : "01").padStart(2, "0");
+
+  let entries: Entry[] = [];
+
+  if (monthToFetch === currentMonth) {
+    const north = await getDoc(doc(db, "stores", storeId, "regions", "North"));
+    const south = await getDoc(doc(db, "stores", storeId, "regions", "South"));
+    entries = [
+      ...((north.data()?.completed ?? []) as Entry[]),
+      ...((south.data()?.completed ?? []) as Entry[]),
+    ];
+  } else {
+    const archiveSnap = await getDoc(doc(db, "stores", storeId, "archive", monthToFetch));
+    entries = (archiveSnap.data()?.entries ?? []) as Entry[];
+  }
+
+  // Apply day/week filter client-side using serviceEnd
+  if (filterStart !== null && filterEnd !== null) {
+    entries = entries.filter(
+      (e) => e.serviceEnd && e.serviceEnd >= filterStart! && e.serviceEnd < filterEnd!
+    );
+  }
+
+  setArchiveEntries(entries);
+  setArchiveLoading(false);
+}, [storeId, analyticsMonth, analyticsDay, analyticsWeek, rangeMode]);
 
   useEffect(() => {
     if (panel === "analytics") fetchAnalytics();
@@ -1108,12 +1159,49 @@ const ListCard = ({
                   <div className="px-4 py-3 border-b border-slate-200 font-bold text-slate-700 flex items-center justify-between border-l-4 border-l-blue-500">
                     <span>Analytics</span>
                     <div className="flex items-center gap-2">
-                      <input
-                        type="month"
-                        value={analyticsMonth}
-                        onChange={(e) => setAnalyticsMonth(e.target.value)}
-                        className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-blue-500"
-                      />
+                      {/* Segmented control */}
+                      <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs">
+                        {(["day", "week", "month"] as const).map((mode) => (
+                          <button
+                            key={mode}
+                            onClick={() => setRangeMode(mode)}
+                            className={`px-3 py-1 capitalize transition-colors ${
+                              rangeMode === mode
+                                ? "bg-blue-600 text-white font-semibold"
+                                : "bg-white text-slate-500 hover:bg-slate-50"
+                            }`}
+                          >
+                            {mode}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Date input — changes based on mode */}
+                      {rangeMode === "month" && (
+                        <input
+                          type="month"
+                          value={analyticsMonth}
+                          onChange={(e) => setAnalyticsMonth(e.target.value)}
+                          className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-blue-500"
+                        />
+                      )}
+                      {rangeMode === "week" && (
+                        <input
+                          type="week"
+                          value={analyticsWeek}
+                          onChange={(e) => setAnalyticsWeek(e.target.value)}
+                          className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-blue-500"
+                        />
+                      )}
+                      {rangeMode === "day" && (
+                        <input
+                          type="date"
+                          value={analyticsDay}
+                          onChange={(e) => setAnalyticsDay(e.target.value)}
+                          className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-blue-500"
+                        />
+                      )}
+
                       <button
                         onClick={fetchAnalytics}
                         className="text-xs text-slate-400 hover:text-slate-200 border border-slate-300 rounded-lg px-2 py-1"
@@ -1163,7 +1251,9 @@ const ListCard = ({
                       );
                     })()
                   ) : analyticsBySalesperson.length === 0 ? (
-                    <div className="px-4 py-4 text-sm text-slate-400">No completed visits for this month.</div>
+                    <div className="px-4 py-4 text-sm text-slate-400">
+                      No completed visits for this {rangeMode}.
+                    </div>
                   ) : (
                     <div className="divide-y divide-slate-100">
                       {analyticsBySalesperson.map((person) => (
