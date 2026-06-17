@@ -21,6 +21,7 @@ type VisitOutcome = {
   proposal?: boolean;
   sold?: boolean;
   deposit?: boolean;
+  vehicleType?: "new" | "used" | "n/a";
 };
 
 type QueueProps = {
@@ -45,6 +46,7 @@ export default function Queue({
 }: QueueProps) {
   const { data, initIfMissing, updateFeed } = useStoreFeed(storeId, region);
   const { settings, updateSetting } = useStoreSettings(storeId);
+  const showNewUsed = settings.showNewUsed ?? false;
 
   const { managerUsers } = useStoreUsers(storeId);
 
@@ -1023,251 +1025,28 @@ export default function Queue({
                   </div>
                 </div>
               ))}
-            </div>
 
-            <div className="flex gap-2">
-              <button
-                onClick={closeCompleteModal}
-                className="flex-1 rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  setOutcomeModalOpen(false);
-                  void handleConfirmComplete(pendingReason, visitOutcome);
-                }}
-                className="flex-1 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
-              >
-                Save visit
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setOutcomeModalOpen(false);
-                void handleConfirmComplete(pendingReason, visitOutcome);
-              }}
-              className="mt-3 w-full text-xs text-slate-500 hover:text-slate-300"
-            >
-              Skip
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* OUTCOME MODAL */}
-      {outcomeModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onClick={closeCompleteModal}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-lg font-semibold mb-1 text-slate-100">Visit outcome</h2>
-            <p className="text-sm text-slate-400 mb-5">What happened during this visit?</p>
-
-            <div className="flex flex-col gap-3 mb-6">
-              {([
-                ["testDrive", "Test Drive"],
-                ["proposal", "Proposal"],
-                ["sold", "Sold"],
-                ["deposit", "Deposit"],
-              ] as const).map(([key, label]) => (
-                <div key={key} className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-slate-200">{label}</span>
+              {showNewUsed && (
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-sm font-medium text-slate-200">Vehicle Type</span>
                   <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setVisitOutcome((prev) => ({ ...prev, [key]: false }))}
-                      className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${
-                        visitOutcome[key] === false
-                          ? "bg-red-600 border-red-500 text-white"
-                          : "bg-slate-800 border-slate-600 text-slate-400 hover:border-red-500/50"
-                      }`}
-                    >
-                      ✕
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setVisitOutcome((prev) => ({ ...prev, [key]: true }))}
-                      className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${
-                        visitOutcome[key] === true
-                          ? "bg-green-600 border-green-500 text-white"
-                          : "bg-slate-800 border-slate-600 text-slate-400 hover:border-green-500/50"
-                      }`}
-                    >
-                      ✓
-                    </button>
+                    {(["new", "used", "n/a"] as const).map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setVisitOutcome((prev) => ({ ...prev, vehicleType: type }))}
+                        className={`px-4 h-10 rounded-xl border text-sm font-medium transition uppercase ${
+                          visitOutcome.vehicleType === type
+                            ? "bg-blue-600 border-blue-500 text-white"
+                            : "bg-slate-800 border-slate-600 text-slate-400 hover:border-blue-500/50"
+                        }`}
+                      >
+                        {type === "n/a" ? "N/A" : type.charAt(0).toUpperCase() + type.slice(1)}
+                      </button>
+                    ))}
                   </div>
                 </div>
-              ))}
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={closeCompleteModal}
-                className="flex-1 rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  setOutcomeModalOpen(false);
-                  void handleConfirmComplete(pendingReason, visitOutcome);
-                }}
-                className="flex-1 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
-              >
-                Save visit
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setOutcomeModalOpen(false);
-                void handleConfirmComplete(pendingReason, visitOutcome);
-              }}
-              className="mt-3 w-full text-xs text-slate-500 hover:text-slate-300"
-            >
-              Skip
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* OUTCOME MODAL */}
-      {outcomeModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onClick={closeCompleteModal}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-lg font-semibold mb-1 text-slate-100">Visit outcome</h2>
-            <p className="text-sm text-slate-400 mb-5">What happened during this visit?</p>
-
-            <div className="flex flex-col gap-3 mb-6">
-              {([
-                ["testDrive", "Test Drive"],
-                ["proposal", "Proposal"],
-                ["sold", "Sold"],
-                ["deposit", "Deposit"],
-              ] as const).map(([key, label]) => (
-                <div key={key} className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-slate-200">{label}</span>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setVisitOutcome((prev) => ({ ...prev, [key]: false }))}
-                      className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${
-                        visitOutcome[key] === false
-                          ? "bg-red-600 border-red-500 text-white"
-                          : "bg-slate-800 border-slate-600 text-slate-400 hover:border-red-500/50"
-                      }`}
-                    >
-                      ✕
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setVisitOutcome((prev) => ({ ...prev, [key]: true }))}
-                      className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${
-                        visitOutcome[key] === true
-                          ? "bg-green-600 border-green-500 text-white"
-                          : "bg-slate-800 border-slate-600 text-slate-400 hover:border-green-500/50"
-                      }`}
-                    >
-                      ✓
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={closeCompleteModal}
-                className="flex-1 rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  setOutcomeModalOpen(false);
-                  void handleConfirmComplete(pendingReason, visitOutcome);
-                }}
-                className="flex-1 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500"
-              >
-                Save visit
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setOutcomeModalOpen(false);
-                void handleConfirmComplete(pendingReason, visitOutcome);
-              }}
-              className="mt-3 w-full text-xs text-slate-500 hover:text-slate-300"
-            >
-              Skip
-            </button>
-          </div>
-        </div>
-      )}
-
-      {outcomeModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onClick={closeCompleteModal}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-lg font-semibold mb-1 text-slate-100">Visit outcome</h2>
-            <p className="text-sm text-slate-400 mb-5">What happened during this visit?</p>
-
-            <div className="flex flex-col gap-3 mb-6">
-              {([
-                ["testDrive", "Test Drive"],
-                ["proposal", "Proposal"],
-                ["sold", "Sold"],
-                ["deposit", "Deposit"],
-              ] as const).map(([key, label]) => (
-                <div key={key} className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-slate-200">{label}</span>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setVisitOutcome((prev) => ({ ...prev, [key]: false }))}
-                      className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${
-                        visitOutcome[key] === false
-                          ? "bg-red-600 border-red-500 text-white"
-                          : "bg-slate-800 border-slate-600 text-slate-400 hover:border-red-500/50"
-                      }`}
-                    >
-                      ✕
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setVisitOutcome((prev) => ({ ...prev, [key]: true }))}
-                      className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${
-                        visitOutcome[key] === true
-                          ? "bg-green-600 border-green-500 text-white"
-                          : "bg-slate-800 border-slate-600 text-slate-400 hover:border-green-500/50"
-                      }`}
-                    >
-                      ✓
-                    </button>
-                  </div>
-                </div>
-              ))}
+              )}
             </div>
 
             <div className="flex gap-2">

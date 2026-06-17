@@ -6,6 +6,8 @@ export type StoreSettings = {
   queueRotation: boolean;
   lockQueuePosition: boolean;
   rotationStartedAt?: number;
+  showNewUsed?: boolean;
+  splitRegionView?: boolean;
 };
 
 const defaults: StoreSettings = {

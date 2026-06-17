@@ -25,6 +25,7 @@ export type QueueEntry = {
     proposal?: boolean;
     sold?: boolean;
     deposit?: boolean;
+    vehicleType?: "new" | "used" | "n/a";
   };
 };
 
