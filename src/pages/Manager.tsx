@@ -221,6 +221,7 @@ const [analyticsWeek, setAnalyticsWeek] = useState(() => {
 
   // Add user modal state
 const [addUserModalOpen, setAddUserModalOpen] = useState(false);
+const [addToQueueModalOpen, setAddToQueueModalOpen] = useState(false);
 const [newUserFirstName, setNewUserFirstName] = useState("");
 const [newUserLastName, setNewUserLastName] = useState("");
 const [newUserEmail, setNewUserEmail] = useState("");
@@ -740,6 +741,86 @@ const ListCard = ({
   </div>
 )}
 
+{/* ADD TO QUEUE MODAL */}
+{addToQueueModalOpen && (
+  <div
+    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+    onClick={() => setAddToQueueModalOpen(false)}
+  >
+    <div
+      className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <h2 className="text-lg font-semibold text-slate-100 mb-4">Add to Queue</h2>
+      <p className="text-xs text-slate-400 mb-3">Select a salesman to add to North or South queue.</p>
+      <div className="flex flex-col gap-2 max-h-80 overflow-y-auto">
+        {assignedUsers.filter((u) => u.role === "sales" || u.role === "manager").map((u) => {
+          const initials = (u.displayName?.[0] ?? "?").toUpperCase();
+          const alreadyNorth = queueNorth.some((q) => q.email === u.email);
+          const alreadySouth = queueSouth.some((q) => q.email === u.email);
+          return (
+            <div key={u.uid} className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-700 text-white text-xs font-semibold shrink-0">
+                {initials}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-slate-100 truncate">{u.displayName}</div>
+                <div className="text-xs text-slate-400 truncate">{u.email}</div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => {
+                    if (alreadyNorth) return;
+                    const newEntry = {
+                      id: crypto.randomUUID(),
+                      firstName: u.displayName.split(" ")[0] ?? u.displayName,
+                      lastName: u.displayName.split(" ").slice(1).join(" ") ?? "",
+                      email: u.email,
+                      note: "",
+                      joinedAt: Date.now(),
+                    };
+                    const ref = doc(db, "stores", storeId, "regions", "North");
+                    updateDoc(ref, { queue: [...queueNorth, newEntry] });
+                  }}
+                  disabled={alreadyNorth}
+                  className="text-xs text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-full px-3 py-1"
+                >
+                  {alreadyNorth ? "In North" : "+ North"}
+                </button>
+                <button
+                  onClick={() => {
+                    if (alreadySouth) return;
+                    const newEntry = {
+                      id: crypto.randomUUID(),
+                      firstName: u.displayName.split(" ")[0] ?? u.displayName,
+                      lastName: u.displayName.split(" ").slice(1).join(" ") ?? "",
+                      email: u.email,
+                      note: "",
+                      joinedAt: Date.now(),
+                    };
+                    const ref = doc(db, "stores", storeId, "regions", "South");
+                    updateDoc(ref, { queue: [...queueSouth, newEntry] });
+                  }}
+                  disabled={alreadySouth}
+                  className="text-xs text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-full px-3 py-1"
+                >
+                  {alreadySouth ? "In South" : "+ South"}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <button
+        onClick={() => setAddToQueueModalOpen(false)}
+        className="mt-4 w-full rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+      >
+        Done
+      </button>
+    </div>
+  </div>
+)}
+
 
           {/* LEFT SIDEBAR */}
             <Sidebar
@@ -920,6 +1001,17 @@ const ListCard = ({
               {/* Panels */}
               {panel === "queue" && (
                 settings.splitRegionView ? (
+                  <div className="flex flex-col gap-4">
+                  {isManagerLike && (
+                    <div className="flex justify-start">
+                      <button
+                        onClick={() => setAddToQueueModalOpen(true)}
+                        className="text-xs text-blue-600 hover:text-blue-800 border border-blue-300 bg-white rounded-lg px-3 py-1.5 font-medium"
+                      >
+                        + Add to Queue
+                      </button>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-4">
                     {/* NORTH QUEUE */}
                     <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
@@ -927,10 +1019,10 @@ const ListCard = ({
                         <span>North Queue ({queueNorth.length})</span>
                       </div>
                       <div className="divide-y divide-slate-100">
-                        {queue.length === 0 ? (
+                        {queueNorth.length === 0 ? (
                           <div className="px-4 py-4 text-sm text-slate-400">None</div>
                         ) : (
-                          queue.map((e, idx) => (
+                          queueNorth.map((e, idx) => (
                             <div
                               key={e.id}
                               draggable
@@ -967,16 +1059,32 @@ const ListCard = ({
                                 <div className="text-[11px] text-slate-400">{e.joinedAt ? `Joined ${fmtTime(e.joinedAt)}` : ""}</div>
                               </div>
                               {isAdminOrOwner && (
-                                <button
-                                  onClick={(ev) => {
-                                    ev.stopPropagation();
-                                    const ref = doc(db, "stores", storeId, "regions", "North");
-                                    updateDoc(ref, { queue: queue.filter((q) => q.id !== e.id) });
-                                  }}
-                                  className="text-xs text-white bg-red-600 hover:bg-red-500 rounded-full px-3 py-1 ml-2"
-                                >
-                                  Remove
-                                </button>
+                                <div className="flex gap-2 ml-2">
+                                  {settings.northSouthTransfer && (
+                                  <button
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
+                                      const northRef = doc(db, "stores", storeId, "regions", "North");
+                                      const southRef = doc(db, "stores", storeId, "regions", "South");
+                                      updateDoc(northRef, { queue: queueNorth.filter((q) => q.id !== e.id) });
+                                      updateDoc(southRef, { queue: [...queueSouth, { ...e, joinedAt: Date.now() }] });
+                                    }}
+                                    className="text-xs text-white bg-purple-600 hover:bg-purple-500 rounded-full px-3 py-1"
+                                  >
+                                    → South
+                                  </button>
+                                  )}
+                                  <button
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
+                                      const ref = doc(db, "stores", storeId, "regions", "North");
+                                      updateDoc(ref, { queue: queueNorth.filter((q) => q.id !== e.id) });
+                                    }}
+                                    className="text-xs text-white bg-red-600 hover:bg-red-500 rounded-full px-3 py-1"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
                               )}
                             </div>
                           ))
@@ -1036,22 +1144,37 @@ const ListCard = ({
                                 <div className="text-[11px] text-slate-400">{e.joinedAt ? `Joined ${fmtTime(e.joinedAt)}` : ""}</div>
                               </div>
                               {isAdminOrOwner && (
-                                <button
-                                  onClick={(ev) => {
-                                    ev.stopPropagation();
-                                    const ref = doc(db, "stores", storeId, "regions", "South");
-                                    updateDoc(ref, { queue: queueSouth.filter((q) => q.id !== e.id) });
-                                  }}
-                                  className="text-xs text-white bg-red-600 hover:bg-red-500 rounded-full px-3 py-1 ml-2"
-                                >
-                                  Remove
-                                </button>
+                                <div className="flex gap-2 ml-2">
+                                  <button
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
+                                      const northRef = doc(db, "stores", storeId, "regions", "North");
+                                      const southRef = doc(db, "stores", storeId, "regions", "South");
+                                      updateDoc(southRef, { queue: queueSouth.filter((q) => q.id !== e.id) });
+                                      updateDoc(northRef, { queue: [...queueNorth, { ...e, joinedAt: Date.now() }] });
+                                    }}
+                                    className="text-xs text-white bg-blue-600 hover:bg-blue-500 rounded-full px-3 py-1"
+                                  >
+                                    ← North
+                                  </button>
+                                  <button
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
+                                      const ref = doc(db, "stores", storeId, "regions", "South");
+                                      updateDoc(ref, { queue: queueSouth.filter((q) => q.id !== e.id) });
+                                    }}
+                                    className="text-xs text-white bg-red-600 hover:bg-red-500 rounded-full px-3 py-1"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
                               )}
                             </div>
                           ))
                         )}
                       </div>
                     </div>
+                  </div>
                   </div>
                 ) : (
                 <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
@@ -1305,6 +1428,24 @@ const ListCard = ({
                       >
                         <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                           settings.splitRegionView ? "translate-x-6" : "translate-x-1"
+                        }`} />
+                      </button>
+                    </div>
+
+                    {/* North/South Transfer */}
+                    <div className="px-4 py-4 flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-800">North/South Transfer</div>
+                        <div className="text-xs text-slate-400 mt-0.5">Allow moving salesmen between North and South queues</div>
+                      </div>
+                      <button
+                        onClick={() => updateSetting("northSouthTransfer", !settings.northSouthTransfer)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          settings.northSouthTransfer ? "bg-blue-600" : "bg-slate-200"
+                        }`}
+                      >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          settings.northSouthTransfer ? "translate-x-6" : "translate-x-1"
                         }`} />
                       </button>
                     </div>
