@@ -758,6 +758,7 @@ const ListCard = ({
           const initials = (u.displayName?.[0] ?? "?").toUpperCase();
           const alreadyNorth = queueNorth.some((q) => q.email === u.email);
           const alreadySouth = queueSouth.some((q) => q.email === u.email);
+          const alreadyEither = alreadyNorth || alreadySouth;
           return (
             <div key={u.uid} className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-700 text-white text-xs font-semibold shrink-0">
@@ -782,10 +783,10 @@ const ListCard = ({
                     const ref = doc(db, "stores", storeId, "regions", "North");
                     updateDoc(ref, { queue: [...queueNorth, newEntry] });
                   }}
-                  disabled={alreadyNorth}
+                  disabled={alreadyEither}
                   className="text-xs text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-full px-3 py-1"
                 >
-                  {alreadyNorth ? "In North" : "+ North"}
+                  {alreadyNorth ? "In North" : alreadySouth ? "In South" : "+ North"}
                 </button>
                 <button
                   onClick={() => {
@@ -801,10 +802,10 @@ const ListCard = ({
                     const ref = doc(db, "stores", storeId, "regions", "South");
                     updateDoc(ref, { queue: [...queueSouth, newEntry] });
                   }}
-                  disabled={alreadySouth}
+                  disabled={alreadyEither}
                   className="text-xs text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-full px-3 py-1"
                 >
-                  {alreadySouth ? "In South" : "+ South"}
+                  {alreadySouth ? "In South" : alreadyNorth ? "In North" : "+ South"}
                 </button>
               </div>
             </div>
