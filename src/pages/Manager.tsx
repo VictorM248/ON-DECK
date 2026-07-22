@@ -40,7 +40,7 @@ export default function Manager() {
     }, [sidebarOpen]);
 
   // Same live feed as the app
-  const { data, initIfMissing } = useStoreFeed(storeId || "store-placeholder", region);
+  const { initIfMissing } = useStoreFeed(storeId || "store-placeholder", region);
   const { data: dataNorth } = useStoreFeed(storeId || "store-placeholder", "North");
   const { data: dataSouth } = useStoreFeed(storeId || "store-placeholder", "South");
   const { settings, updateSetting } = useStoreSettings(storeId || "store-placeholder");
@@ -50,12 +50,18 @@ export default function Manager() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeId, region]);
 
-  const queue = useMemo(() => (data.queue ?? []) as Entry[], [data.queue]);
-  const active = useMemo(() => (data.active ?? []) as Entry[], [data.active]);
-  const completed = useMemo(
-    () => (data.completed ?? []) as Entry[],
-    [data.completed]
-  );
+  const queue = useMemo(() => [
+    ...(dataNorth.queue ?? []) as Entry[],
+    ...(dataSouth.queue ?? []) as Entry[],
+  ], [dataNorth.queue, dataSouth.queue]);
+  const active = useMemo(() => [
+    ...(dataNorth.active ?? []) as Entry[],
+    ...(dataSouth.active ?? []) as Entry[],
+  ], [dataNorth.active, dataSouth.active]);
+  const completed = useMemo(() => [
+    ...(dataNorth.completed ?? []) as Entry[],
+    ...(dataSouth.completed ?? []) as Entry[],
+  ], [dataNorth.completed, dataSouth.completed]);
   const queueNorth = useMemo(() => (dataNorth.queue ?? []) as Entry[], [dataNorth.queue]);
   const queueSouth = useMemo(() => (dataSouth.queue ?? []) as Entry[], [dataSouth.queue]);
 
@@ -219,7 +225,7 @@ const [analyticsWeek, setAnalyticsWeek] = useState(() => {
   const [currentUserRole, setCurrentUserRole] = useState<string>("");
   const [currentUserStoreId, setCurrentUserStoreId] = useState<string>("");
 
-  // Add user modal state
+ // Add user modal state
 const [addUserModalOpen, setAddUserModalOpen] = useState(false);
 const [addToQueueModalOpen, setAddToQueueModalOpen] = useState(false);
 const [newUserFirstName, setNewUserFirstName] = useState("");
@@ -229,6 +235,20 @@ const [newUserStoreId, setNewUserStoreId] = useState("");
 const [newUserRole, setNewUserRole] = useState("sales");
 const [newUserSaving, setNewUserSaving] = useState(false);
 const [newUserError, setNewUserError] = useState("");
+
+// With Customers completion flow state
+const [mgrCompleteEntryId, setMgrCompleteEntryId] = useState<string | null>(null);
+const [mgrReturnPosition, setMgrReturnPosition] = useState<"top" | "bottom">("bottom");
+const [mgrEarlyReasonModalOpen, setMgrEarlyReasonModalOpen] = useState(false);
+const [mgrEarlyReason, setMgrEarlyReason] = useState<"service" | "parts" | "finance" | "other" | null>(null);
+const [mgrOutcomeModalOpen, setMgrOutcomeModalOpen] = useState(false);
+const [mgrVisitOutcome, setMgrVisitOutcome] = useState<{ testDrive?: boolean; proposal?: boolean; sold?: boolean; deposit?: boolean; vehicleType?: "new" | "used" | "n/a" }>({});
+const [mgrPendingReason, setMgrPendingReason] = useState<"service" | "parts" | "finance" | "other" | undefined>(undefined);
+const [mgrSelectedManagerIds, setMgrSelectedManagerIds] = useState<string[]>([]);
+const [mgrDoneActiveId, setMgrDoneActiveId] = useState<string | null>(null);
+const [mgrManagerUsers, setMgrManagerUsers] = useState<{ uid: string; displayName: string }[]>([]);
+const [mgrStartEntryId, setMgrStartEntryId] = useState<string | null>(null);
+const [mgrStartRegion, setMgrStartRegion] = useState<string>("");
 
 
   // Fetch current user's role and storeId
@@ -247,6 +267,131 @@ const [newUserError, setNewUserError] = useState("");
   const isOwner = currentUserRole === "owner";
   const isAdminOrOwner = currentUserRole === "admin" || currentUserRole === "owner";
   const isManagerLike = currentUserRole === "manager" || currentUserRole === "admin" || currentUserRole === "owner";
+
+  const closeMgrCompleteModal = () => {
+    setMgrCompleteEntryId(null);
+    setMgrSelectedManagerIds([]);
+    setMgrReturnPosition("bottom");
+    setMgrEarlyReasonModalOpen(false);
+    setMgrEarlyReason(null);
+    setMgrOutcomeModalOpen(false);
+    setMgrVisitOutcome({});
+    setMgrPendingReason(undefined);
+    setMgrDoneActiveId(null);
+  };
+
+  const handleMgrConfirmComplete = async (reason?: "service" | "parts" | "finance" | "other", outcome?: typeof mgrVisitOutcome) => {
+    if (!mgrCompleteEntryId) return;
+    const regionActive = dataNorth.active?.some((a) => a.id === mgrCompleteEntryId)
+      ? (dataNorth.active ?? []) as Entry[]
+      : (dataSouth.active ?? []) as Entry[];
+    const regionQueue = dataNorth.active?.some((a) => a.id === mgrCompleteEntryId)
+      ? (dataNorth.queue ?? []) as Entry[]
+      : (dataSouth.queue ?? []) as Entry[];
+    const entry = regionActive.find((e) => e.id === mgrCompleteEntryId);
+    if (!entry) { closeMgrCompleteModal(); return; }
+
+    const idToName = new Map<string, string>();
+    for (const m of mgrManagerUsers) idToName.set(m.uid, m.displayName);
+    const managersList = mgrSelectedManagerIds
+      .map((id) => idToName.get(id))
+      .filter((x): x is string => Boolean(x));
+
+    const end = Date.now();
+    const durationSec = entry.serviceStart
+      ? Math.max(0, Math.round((end - entry.serviceStart) / 1000))
+      : undefined;
+
+    const completedEntry: Entry = {
+      id: entry.id,
+      firstName: entry.firstName,
+      lastName: entry.lastName,
+      email: entry.email,
+      note: entry.note ?? "",
+      joinedAt: entry.joinedAt,
+      ...(entry.joinType ? { joinType: entry.joinType } : {}),
+      ...(entry.teamLabel ? { teamLabel: entry.teamLabel } : {}),
+      ...(entry.originalQueueIndex !== undefined ? { originalQueueIndex: entry.originalQueueIndex } : {}),
+      ...(managersList.length > 0 ? { managers: managersList } : {}),
+      ...(reason ?? mgrEarlyReason ? { earlyReason: reason ?? mgrEarlyReason ?? undefined } : {}),
+      serviceEnd: end,
+      ...(durationSec !== undefined ? { durationSec } : {}),
+      visitOutcome: outcome ?? mgrVisitOutcome,
+    };
+
+    const canSendTop = entry.serviceStart ? now - entry.serviceStart < 2 * 60 * 1000 : true;
+    const finalPosition = mgrReturnPosition === "top" && canSendTop ? "top" : "bottom";
+
+    const requeuedEntry: Entry = {
+      id: crypto.randomUUID(),
+      firstName: entry.firstName,
+      lastName: entry.lastName,
+      email: entry.email,
+      note: "",
+      joinedAt: Date.now(),
+    };
+
+    const nextActive = regionActive.filter((e) => e.id !== mgrCompleteEntryId);
+    const nextCompleted = [...(dataNorth.active?.some((a) => a.id === mgrCompleteEntryId) ? (dataNorth.completed ?? []) : (dataSouth.completed ?? [])) as Entry[], completedEntry];
+
+    let nextQueue: Entry[];
+    if (finalPosition === "top") {
+      const originalIndex = typeof entry.originalQueueIndex === "number" ? entry.originalQueueIndex : 0;
+      const safeIndex = Math.max(0, Math.min(originalIndex, regionQueue.length));
+      nextQueue = [...regionQueue];
+      nextQueue.splice(safeIndex, 0, requeuedEntry);
+    } else {
+      nextQueue = [...regionQueue, requeuedEntry];
+    }
+
+    const entryRegion = dataNorth.active?.some((a) => a.id === mgrCompleteEntryId) ? "North" : "South";
+    const regionRef = doc(db, "stores", storeId, "regions", entryRegion);
+    await updateDoc(regionRef, { queue: nextQueue, active: nextActive, completed: nextCompleted });
+    closeMgrCompleteModal();
+  };
+
+  const handleMgrSendBackToQueue = async () => {
+    if (!mgrDoneActiveId) return;
+    const regionActive = dataNorth.active?.some((a) => a.id === mgrDoneActiveId)
+      ? (dataNorth.active ?? []) as Entry[]
+      : (dataSouth.active ?? []) as Entry[];
+    const regionQueue = dataNorth.active?.some((a) => a.id === mgrDoneActiveId)
+      ? (dataNorth.queue ?? []) as Entry[]
+      : (dataSouth.queue ?? []) as Entry[];
+    const entry = regionActive.find((e) => e.id === mgrDoneActiveId);
+    if (!entry) { setMgrDoneActiveId(null); return; }
+
+    const idToName = new Map<string, string>();
+    for (const m of mgrManagerUsers) idToName.set(m.uid, m.displayName);
+    const helpers = mgrSelectedManagerIds
+      .map((id) => idToName.get(id))
+      .filter((x): x is string => Boolean(x));
+
+    const originalIndex = typeof entry.originalQueueIndex === "number" ? entry.originalQueueIndex : regionQueue.length;
+    const safeIndex = Math.max(0, Math.min(originalIndex, regionQueue.length));
+
+    const cleaned: Entry = {
+      id: entry.id,
+      firstName: entry.firstName,
+      lastName: entry.lastName,
+      email: entry.email,
+      note: entry.note ?? "",
+      joinedAt: entry.joinedAt,
+      originalQueueIndex: entry.originalQueueIndex,
+      ...(helpers.length > 0 ? { managers: helpers } : entry.managers ? { managers: entry.managers } : {}),
+    };
+
+    const nextActive = regionActive.filter((e) => e.id !== mgrDoneActiveId);
+    const nextQueue = [...regionQueue];
+    nextQueue.splice(safeIndex, 0, cleaned);
+
+    const entryRegion = dataNorth.active?.some((a) => a.id === mgrDoneActiveId) ? "North" : "South";
+    const regionRef = doc(db, "stores", storeId, "regions", entryRegion);
+    const regionCompleted = entryRegion === "North" ? (dataNorth.completed ?? []) as Entry[] : (dataSouth.completed ?? []) as Entry[];
+    await updateDoc(regionRef, { queue: nextQueue, active: nextActive, completed: regionCompleted });
+    setMgrDoneActiveId(null);
+    setMgrSelectedManagerIds([]);
+  };
 
   const reorderQueue = useCallback(async (fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex) return;
@@ -339,6 +484,17 @@ const [newUserError, setNewUserError] = useState("");
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
+
+  // Fetch manager users for the completion flow
+  useEffect(() => {
+    if (!storeId) return;
+    getDocs(collection(db, "users")).then((snap) => {
+      const managers = snap.docs
+        .filter((d) => ["manager", "admin", "owner"].includes(d.data().role ?? "") && d.data().storeId === currentUserStoreId)
+        .map((d) => ({ uid: d.id, displayName: d.data().displayName ?? "" }));
+      setMgrManagerUsers(managers);
+    });
+  }, [storeId, currentUserStoreId]);
 
   async function updateUser(uid: string, field: "role" | "storeId", value: string) {
     await updateDoc(doc(db, "users", uid), { [field]: value });
@@ -497,7 +653,13 @@ const [newUserError, setNewUserError] = useState("");
   };
 
   const filteredQueue = useMemo(() => queue.filter(matchSearch), [queue, search]);
-  const filteredActive = useMemo(() => active.filter(matchSearch), [active, search]);
+  const filteredActive = useMemo(() => {
+    const allActive = [
+      ...(dataNorth.active ?? []) as Entry[],
+      ...(dataSouth.active ?? []) as Entry[],
+    ];
+    return allActive.filter(matchSearch);
+  }, [dataNorth.active, dataSouth.active, search]);
   const filteredCompleted = useMemo(
     () => completed.filter(matchSearch),
     [completed, search]
@@ -737,6 +899,236 @@ const ListCard = ({
           {newUserSaving ? "Saving..." : "Create User"}
         </button>
       </div>
+    </div>
+  </div>
+)}
+
+{/* MGR: JOIN TYPE MODAL (Queue -> With Customers) */}
+{mgrStartEntryId && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setMgrStartEntryId(null)}>
+    <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <h2 className="text-lg font-semibold mb-2 text-slate-100">How is this guest being served?</h2>
+      {(() => {
+        const regionQueue = mgrStartRegion === "North" ? queueNorth : mgrStartRegion === "South" ? queueSouth : queue;
+        const e = regionQueue.find((q) => q.id === mgrStartEntryId);
+        return <p className="text-sm text-slate-300 mb-4">{e ? `${e.firstName} ${e.lastName}` : "Selected guest"}</p>;
+      })()}
+      <div className="flex flex-col gap-3">
+        {([
+          ["walk-in", "Walk-in"],
+          ["appt-phone", "Appointment (Phone)"],
+          ["appt-online", "Appointment (Online)"],
+        ] as const).map(([type, label]) => (
+          <button
+            key={type}
+            onClick={async () => {
+              const regionQueue = mgrStartRegion === "North" ? queueNorth : mgrStartRegion === "South" ? queueSouth : queue;
+              const regionActive = mgrStartRegion === "North" ? (dataNorth.active ?? []) as Entry[] : mgrStartRegion === "South" ? (dataSouth.active ?? []) as Entry[] : active;
+              const entryIdx = regionQueue.findIndex((q) => q.id === mgrStartEntryId);
+              const entry = regionQueue[entryIdx];
+              if (!entry) { setMgrStartEntryId(null); return; }
+              const nextQueue = regionQueue.filter((q) => q.id !== mgrStartEntryId);
+              const nextActive: Entry[] = [
+                ...regionActive,
+                {
+                  ...entry,
+                  joinType: type,
+                  serviceStart: Date.now(),
+                  originalQueueIndex: entryIdx,
+                },
+              ];
+              const targetRegion = mgrStartRegion || region;
+              const ref = doc(db, "stores", storeId, "regions", targetRegion);
+              const regionCompleted = targetRegion === "North" ? (dataNorth.completed ?? []) as Entry[] : (dataSouth.completed ?? []) as Entry[];
+              await updateDoc(ref, { queue: nextQueue, active: nextActive, completed: regionCompleted });
+              setMgrStartEntryId(null);
+            }}
+            className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
+          >
+            {type === "walk-in" ? <DoorOpen size={16} /> : type === "appt-phone" ? <Phone size={16} /> : <Globe size={16} />}
+            <span className="font-medium">{label}</span>
+          </button>
+        ))}
+      </div>
+      <button onClick={() => setMgrStartEntryId(null)} className="mt-4 w-full rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800">Cancel</button>
+    </div>
+  </div>
+)}
+
+{/* MGR: DONE MODAL (Send back to queue) */}
+{mgrDoneActiveId && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => { setMgrDoneActiveId(null); setMgrSelectedManagerIds([]); }}>
+    <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <h2 className="text-lg font-semibold mb-2 text-slate-100">Move back to queue?</h2>
+      {(() => {
+        const e = [...(dataNorth.active ?? []), ...(dataSouth.active ?? [])].find((a) => a.id === mgrDoneActiveId);
+        return <p className="text-sm text-slate-300 mb-4">{e ? `${e.firstName} ${e.lastName}` : "Selected guest"}</p>;
+      })()}
+      {(() => {
+        const e = [...(dataNorth.active ?? []), ...(dataSouth.active ?? [])].find((a) => a.id === mgrDoneActiveId);
+        if (!e) return null;
+        const canSendTop = e.serviceStart ? now - e.serviceStart < 2 * 60 * 1000 : true;
+        return (
+          <div className="flex flex-col gap-3 mb-4">
+            {canSendTop && !settings.lockQueuePosition && (
+              <button onClick={() => void handleMgrSendBackToQueue()} className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700">
+                Send back to <span className="font-semibold">original spot</span> in queue
+              </button>
+            )}
+            {mgrManagerUsers.length > 0 && (
+              <div>
+                <p className="text-xs text-slate-400 mb-2">Who helped with this visit? (optional)</p>
+                <div className="flex flex-wrap gap-2">
+                  {mgrManagerUsers.map((m) => {
+                    const selected = mgrSelectedManagerIds.includes(m.uid);
+                    return (
+                      <button key={m.uid} type="button" onClick={() => setMgrSelectedManagerIds((prev) => prev.includes(m.uid) ? prev.filter((x) => x !== m.uid) : prev.length >= 3 ? prev : [...prev, m.uid])}
+                        className={`rounded-full border px-3 py-1 text-xs ${selected ? "bg-blue-600 border-blue-500 text-white" : "bg-slate-800 border-slate-600 text-slate-200 hover:bg-slate-700"}`}>
+                        {m.displayName}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+      <div className="flex gap-2 mt-2">
+        <button onClick={() => { setMgrDoneActiveId(null); setMgrSelectedManagerIds([]); }} className="flex-1 rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800">Cancel</button>
+        <button onClick={() => void handleMgrSendBackToQueue()} className="flex-1 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500">Send to Bottom</button>
+      </div>
+    </div>
+  </div>
+)}
+
+{/* MGR: COMPLETE MODAL */}
+{mgrCompleteEntryId && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={closeMgrCompleteModal}>
+    <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <h2 className="text-lg font-semibold mb-2 text-slate-100">Complete this visit</h2>
+      {(() => {
+        const e = active.find((a) => a.id === mgrCompleteEntryId);
+        return <p className="text-sm text-slate-300 mb-4">{e ? `${e.firstName} ${e.lastName}` : "Selected guest"}</p>;
+      })()}
+      {(() => {
+        const e = active.find((a) => a.id === mgrCompleteEntryId);
+        if (!e) return null;
+        const canSendTop = e.serviceStart ? now - e.serviceStart < 2 * 60 * 1000 : true;
+        return (
+          <div className="flex flex-col gap-2 mb-4">
+            {canSendTop && !settings.lockQueuePosition && (
+              <button onClick={() => setMgrReturnPosition("top")} className={`rounded-xl px-4 py-2 text-sm text-center ${mgrReturnPosition === "top" ? "bg-slate-800 text-slate-100" : "border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"}`}>
+                Send to <span className="font-semibold">original</span> spot in queue
+              </button>
+            )}
+            <button onClick={() => setMgrReturnPosition("bottom")} className={`rounded-xl px-4 py-2 text-sm text-center ${mgrReturnPosition === "bottom" ? "bg-slate-800 text-slate-100" : "border border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-800"}`}>
+              Send to <span className="font-semibold">bottom</span> of queue
+            </button>
+            {mgrManagerUsers.length > 0 && (
+              <div className="mt-2">
+                <p className="text-xs text-slate-400 mb-2">Tap up to 3 managers who helped:</p>
+                <div className="flex flex-wrap gap-2">
+                  {mgrManagerUsers.map((m) => {
+                    const selected = mgrSelectedManagerIds.includes(m.uid);
+                    return (
+                      <button key={m.uid} type="button" onClick={() => setMgrSelectedManagerIds((prev) => prev.includes(m.uid) ? prev.filter((x) => x !== m.uid) : prev.length >= 3 ? prev : [...prev, m.uid])}
+                        className={`rounded-full border px-3 py-1 text-xs ${selected ? "bg-blue-600 border-blue-500 text-white" : "bg-slate-800 border-slate-600 text-slate-200 hover:bg-slate-700"}`}>
+                        {m.displayName}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+      <div className="flex gap-2">
+        <button onClick={closeMgrCompleteModal} className="flex-1 rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800">Cancel</button>
+        <button
+          onClick={() => {
+            const e = [...(dataNorth.active ?? []), ...(dataSouth.active ?? [])] .find((a) => a.id === mgrCompleteEntryId);
+            const canSendTop = e?.serviceStart ? now - e.serviceStart < 2 * 60 * 1000 : true;
+            if (canSendTop && mgrReturnPosition === "top" && !settings.lockQueuePosition) {
+              setMgrEarlyReasonModalOpen(true);
+              return;
+            }
+            setMgrVisitOutcome({});
+            setMgrPendingReason(undefined);
+            setMgrOutcomeModalOpen(true);
+          }}
+          className="flex-1 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500">
+          Save visit
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{/* MGR: EARLY REASON MODAL */}
+{mgrEarlyReasonModalOpen && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setMgrEarlyReasonModalOpen(false)}>
+    <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <h2 className="text-lg font-semibold text-slate-100 mb-2">Customer needed...</h2>
+      <p className="text-sm text-slate-300 mb-4">Select where they needed to go.</p>
+      <div className="grid grid-cols-2 gap-3">
+        {(["service", "parts", "finance", "other"] as const).map((key) => (
+          <button key={key} type="button" onClick={() => {
+            setMgrEarlyReason(key);
+            setMgrEarlyReasonModalOpen(false);
+            setMgrPendingReason(key);
+            setMgrVisitOutcome({});
+            setMgrOutcomeModalOpen(true);
+          }} className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm font-medium text-slate-100 hover:bg-slate-700 capitalize">
+            {key}
+          </button>
+        ))}
+      </div>
+      <button type="button" onClick={() => setMgrEarlyReasonModalOpen(false)} className="mt-4 w-full rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800">Cancel</button>
+    </div>
+  </div>
+)}
+
+{/* MGR: OUTCOME MODAL */}
+{mgrOutcomeModalOpen && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={closeMgrCompleteModal}>
+    <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <h2 className="text-lg font-semibold mb-1 text-slate-100">Visit outcome</h2>
+      <p className="text-sm text-slate-400 mb-5">What happened during this visit?</p>
+      <div className="flex flex-col gap-3 mb-6">
+        {(["testDrive", "proposal", "sold", "deposit"] as const).map((key) => (
+          <div key={key} className="flex items-center justify-between">
+            <span className="text-sm font-medium text-slate-200">{key === "testDrive" ? "Test Drive" : key.charAt(0).toUpperCase() + key.slice(1)}</span>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setMgrVisitOutcome((prev) => ({ ...prev, [key]: false }))}
+                className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${mgrVisitOutcome[key] === false ? "bg-red-600 border-red-500 text-white" : "bg-slate-800 border-slate-600 text-slate-400 hover:border-red-500/50"}`}>✕</button>
+              <button type="button" onClick={() => setMgrVisitOutcome((prev) => ({ ...prev, [key]: true }))}
+                className={`w-10 h-10 rounded-xl border text-lg flex items-center justify-center transition ${mgrVisitOutcome[key] === true ? "bg-green-600 border-green-500 text-white" : "bg-slate-800 border-slate-600 text-slate-400 hover:border-green-500/50"}`}>✓</button>
+            </div>
+          </div>
+        ))}
+        {settings.showNewUsed && (
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-sm font-medium text-slate-200">Vehicle Type</span>
+            <div className="flex gap-2">
+              {(["new", "used", "n/a"] as const).map((type) => (
+                <button key={type} type="button" onClick={() => setMgrVisitOutcome((prev) => ({ ...prev, vehicleType: type }))}
+                  className={`px-4 h-10 rounded-xl border text-sm font-medium transition uppercase ${mgrVisitOutcome.vehicleType === type ? "bg-blue-600 border-blue-500 text-white" : "bg-slate-800 border-slate-600 text-slate-400 hover:border-blue-500/50"}`}>
+                  {type === "n/a" ? "N/A" : type.charAt(0).toUpperCase() + type.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <button onClick={closeMgrCompleteModal} className="flex-1 rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800">Cancel</button>
+        <button onClick={() => { setMgrOutcomeModalOpen(false); void handleMgrConfirmComplete(mgrPendingReason, mgrVisitOutcome); }}
+          className="flex-1 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-500">Save visit</button>
+      </div>
+      <button type="button" onClick={() => { setMgrOutcomeModalOpen(false); void handleMgrConfirmComplete(mgrPendingReason, mgrVisitOutcome); }}
+        className="mt-3 w-full text-xs text-slate-500 hover:text-slate-300">Skip</button>
     </div>
   </div>
 )}
@@ -1078,6 +1470,16 @@ const ListCard = ({
                                   <button
                                     onClick={(ev) => {
                                       ev.stopPropagation();
+                                      setMgrStartEntryId(e.id);
+                                      setMgrStartRegion("North");
+                                    }}
+                                    className="text-xs text-white bg-green-600 hover:bg-green-500 rounded-full px-3 py-1"
+                                  >
+                                    With Customer
+                                  </button>
+                                  <button
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
                                       const ref = doc(db, "stores", storeId, "regions", "North");
                                       updateDoc(ref, { queue: queueNorth.filter((q) => q.id !== e.id) });
                                     }}
@@ -1161,6 +1563,16 @@ const ListCard = ({
                                   <button
                                     onClick={(ev) => {
                                       ev.stopPropagation();
+                                      setMgrStartEntryId(e.id);
+                                      setMgrStartRegion("South");
+                                    }}
+                                    className="text-xs text-white bg-green-600 hover:bg-green-500 rounded-full px-3 py-1"
+                                  >
+                                    With Customer
+                                  </button>
+                                  <button
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
                                       const ref = doc(db, "stores", storeId, "regions", "South");
                                       updateDoc(ref, { queue: queueSouth.filter((q) => q.id !== e.id) });
                                     }}
@@ -1224,16 +1636,28 @@ const ListCard = ({
                             <div className="text-[11px] text-slate-400">{e.joinedAt ? `Joined ${fmtTime(e.joinedAt)}` : ""}</div>
                           </div>
                           {isAdminOrOwner && (
-                            <button
-                              onClick={(ev) => {
-                                ev.stopPropagation();
-                                const ref = doc(db, "stores", storeId, "regions", region);
-                                updateDoc(ref, { queue: queue.filter((q) => q.id !== e.id) });
-                              }}
-                              className="text-xs text-white bg-red-600 hover:bg-red-500 rounded-full px-3 py-1 ml-2"
-                            >
-                              Remove
-                            </button>
+                            <div className="flex gap-2 ml-2">
+                              <button
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  setMgrStartEntryId(e.id);
+                                  setMgrStartRegion(region);
+                                }}
+                                className="text-xs text-white bg-green-600 hover:bg-green-500 rounded-full px-3 py-1"
+                              >
+                                 With Customer
+                              </button>
+                              <button
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  const ref = doc(db, "stores", storeId, "regions", region);
+                                  updateDoc(ref, { queue: queue.filter((q) => q.id !== e.id) });
+                                }}
+                                className="text-xs text-white bg-red-600 hover:bg-red-500 rounded-full px-3 py-1"
+                              >
+                                Remove
+                              </button>
+                            </div>
                           )}
                         </div>
                       ))
@@ -1244,17 +1668,67 @@ const ListCard = ({
               )}
 
               {panel === "active" && (
-                <ListCard
-                    title="With Customers"
-                    rows={filteredActive}
-                    rightMeta={(e) => (e.serviceStart ? fmtSince(e.serviceStart) : "")}
-                    miniBarForRow={(e) => {
-                    if (!e.serviceStart) return null;
-                    const mins = minutesSince(e.serviceStart);
-                    return barStyle(mins);
-                    }}
-                />
-                )}
+                <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-200 font-bold text-slate-700 flex items-center justify-between border-l-4 border-l-blue-500">
+                    <span>With Customers ({filteredActive.length})</span>
+                    {search.trim() ? <span className="text-xs text-slate-400">Filtered</span> : null}
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {filteredActive.length === 0 ? (
+                      <div className="px-4 py-4 text-sm text-slate-400">None</div>
+                    ) : (
+                      filteredActive.map((e) => {
+                        const mins = minutesSince(e.serviceStart);
+                        const bar = barStyle(mins);
+                        return (
+                          <div key={e.id} className="px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 text-xs font-bold shrink-0">
+                                {initials(e)}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-semibold text-slate-800 truncate">{fullLabel(e)}</div>
+                                {e.note ? <div className="text-xs text-slate-400 italic truncate">{e.note}</div> : null}
+                                <div className="text-[11px] text-slate-400">{e.serviceStart ? `Started ${fmtTime(e.serviceStart)}` : ""}</div>
+                              </div>
+                              <div className="text-xs text-slate-500 whitespace-nowrap">{e.serviceStart ? fmtSince(e.serviceStart) : ""}</div>
+                              {isManagerLike && (
+                                <div className="flex gap-2 ml-2">
+                                  <button
+                                    onClick={() => {
+                                      setMgrDoneActiveId(e.id);
+                                      setMgrSelectedManagerIds([]);
+                                    }}
+                                    className="text-xs text-white bg-slate-600 hover:bg-slate-500 rounded-full px-3 py-1"
+                                  >
+                                    ↩ Queue
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setMgrCompleteEntryId(e.id);
+                                      setMgrSelectedManagerIds([]);
+                                      setMgrReturnPosition("bottom");
+                                      setMgrEarlyReason(null);
+                                    }}
+                                    className="text-xs text-white bg-green-600 hover:bg-green-500 rounded-full px-3 py-1"
+                                  >
+                                    Done
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                            {e.serviceStart ? (
+                              <div className="mt-2 h-[3px] w-full rounded-full bg-slate-100 overflow-hidden">
+                                <div className="h-full transition-all" style={{ width: bar.width, background: bar.background }}></div>
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
 
               {panel === "completed" && (
                 <ListCard
