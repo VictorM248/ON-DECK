@@ -1925,7 +1925,23 @@ const ListCard = ({
                       </button>
                     </div>
 
-
+                        {/* Region Switching */}
+                    <div className="px-4 py-4 flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-800">Region Switching</div>
+                        <div className="text-xs text-slate-400 mt-0.5">Allow salesmen to switch between North and South regions</div>
+                      </div>
+                      <button
+                        onClick={() => updateSetting("regionSwitching", !settings.regionSwitching)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          settings.regionSwitching ? "bg-blue-600" : "bg-slate-200"
+                        }`}
+                      >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          settings.regionSwitching ? "translate-x-6" : "translate-x-1"
+                        }`} />
+                      </button>
+                    </div>
 
                     {/* Lock Queue Position */}
                     <div className="px-4 py-4 flex items-center justify-between">

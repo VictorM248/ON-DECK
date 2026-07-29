@@ -1,4 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { auth, db } from "../lib/firebase";
 import {
   useStoreFeed,
   type QueueEntry,
@@ -45,7 +47,10 @@ export default function Queue({
   registerAddHandler,
 }: QueueProps) {
   const { data, initIfMissing, updateFeed } = useStoreFeed(storeId, region);
+  const { data: dataOther } = useStoreFeed(storeId, region === "North" ? "South" : "North");
   const { settings, updateSetting } = useStoreSettings(storeId);
+  const queueOther = (dataOther.queue ?? []) as Entry[];
+  const otherRegion = region === "North" ? "South" : "North";
   const showNewUsed = settings.showNewUsed ?? false;
 
   const { managerUsers } = useStoreUsers(storeId);
@@ -103,6 +108,8 @@ export default function Queue({
   const [visitOutcome, setVisitOutcome] = useState<VisitOutcome>({});
   const [, setPendingCompleteEntry] = useState<string | null>(null);
   const [pendingReason, setPendingReason] = useState<EarlyReason | undefined>(undefined);
+  const [regionSwitchConfirmOpen, setRegionSwitchConfirmOpen] = useState(false);
+  const [pendingJoinType, setPendingJoinType] = useState<FeedJoinType | null>(null);
 
   // ---- Firestore write helper ----
   const stripUndefined = <T,>(obj: T): T =>
@@ -282,6 +289,13 @@ export default function Queue({
         return;
       }
 
+      const inOtherQueue = queueOther.some((e) => e.email.toLowerCase() === em);
+      if (inOtherQueue) {
+        setPendingJoinType("walk-in" as FeedJoinType);
+        setRegionSwitchConfirmOpen(true);
+        return;
+      }
+
       const nextQueue: Entry[] = [
         ...queue,
         {
@@ -300,6 +314,8 @@ export default function Queue({
     [queue, active, completed, setLists, onAddSavedName]
   );
 
+
+  
   useEffect(() => {
     registerAddHandler?.(addFromModal);
   }, [registerAddHandler, addFromModal]);
@@ -322,6 +338,42 @@ export default function Queue({
     if (window.confirm("Clear the entire queue?")) {
       await setLists({ queue: [], active, completed });
     }
+  };
+
+
+  const confirmRegionSwitch = async () => {
+    const u = auth.currentUser;
+    if (!u) return;
+    const emailUid = (u.email ?? "").toLowerCase().replace(/[^a-z0-9]/g, "_");
+    const snap = await getDoc(doc(db, "users", emailUid));
+    const userData = snap.data();
+    const firstName = userData?.firstName ?? userData?.displayName?.split(" ")[0] ?? "Unknown";
+    const lastName = userData?.lastName ?? userData?.displayName?.split(" ").slice(1).join(" ") ?? "";
+    const email = u.email ?? "";
+
+    const otherRef = doc(db, "stores", storeId, "regions", otherRegion);
+    await updateDoc(otherRef, {
+      queue: queueOther.filter((e) => e.email !== email),
+    });
+
+    await setLists({
+      queue: [
+        ...queue,
+        {
+          id: crypto.randomUUID(),
+          firstName,
+          lastName,
+          email,
+          note: "",
+          joinedAt: Date.now(),
+        },
+      ],
+      active,
+      completed,
+    });
+
+    setRegionSwitchConfirmOpen(false);
+    setPendingJoinType(null);
   };
 
   const openJoinTypeModal = (entryId: string) => setSelectedEntryId(entryId);
@@ -971,6 +1023,32 @@ export default function Queue({
                 className="flex-1 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
               >
                 Save team
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* REGION SWITCH CONFIRM MODAL */}
+      {regionSwitchConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setRegionSwitchConfirmOpen(false)}>
+          <div className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-semibold mb-2 text-slate-100">Switch regions?</h2>
+            <p className="text-sm text-slate-300 mb-6">
+              This user is currently in the <span className="font-semibold text-white">{otherRegion}</span> queue. Switching to <span className="font-semibold text-white">{region}</span> will remove this user from {otherRegion}. Continue?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setRegionSwitchConfirmOpen(false); setPendingJoinType(null); }}
+                className="flex-1 rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void confirmRegionSwitch()}
+                className="flex-1 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
+              >
+                Continue
               </button>
             </div>
           </div>

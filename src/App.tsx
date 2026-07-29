@@ -4,6 +4,7 @@ import Queue from "./components/Queue";
 import { AuthGate } from "./components/AuthGate";
 
 import { useStoreFeed } from "./lib/useStoreFeed";
+import { useStoreSettings } from "./lib/useStoreSettings";
 import { useSavedNamesFirestore } from "./lib/useSavedNamesFirestore";
 import { useStoreUsers } from "./lib/useStoreUsers";
 import { isAdminLike } from "./lib/roles";
@@ -182,6 +183,7 @@ function AppInner({ storeId, userRole }: { storeId: string; userRole: string }) 
   }, [region]);
 
   const { initIfMissing } = useStoreFeed(storeId, region);
+  const { settings } = useStoreSettings(storeId);
   useEffect(() => {
     initIfMissing();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -630,17 +632,26 @@ function AppInner({ storeId, userRole }: { storeId: string; userRole: string }) 
           {/* Right */}
             <div className="flex items-center gap-2">
               <div className="font-mono text-sm text-slate-200">{currentTime}</div>
-              <select
-                className={`border border-slate-700 rounded-lg px-3 py-1.5 text-sm shadow-sm 
-                  ${role === "Sales" ? "bg-slate-800/70 cursor-not-allowed" : "bg-slate-800"}
-                  text-slate-100`}
-                value={region}
-                onChange={(e) => setRegion(e.target.value)}
-                disabled={role === "Sales"}
-              >
-                <option value="North">North</option>
-                <option value="South">South</option>
-              </select>
+              {settings.regionSwitching ? (
+                <select
+                  className="border border-slate-700 rounded-lg px-3 py-1.5 text-sm shadow-sm bg-slate-800 text-slate-100"
+                  value={region}
+                  onChange={(e) => setRegion(e.target.value)}
+                >
+                  <option value="North">North</option>
+                  <option value="South">South</option>
+                </select>
+              ) : (
+                <select
+                  className="border border-slate-700 rounded-lg px-3 py-1.5 text-sm shadow-sm bg-slate-800/70 cursor-not-allowed text-slate-100"
+                  value={region}
+                  onChange={(e) => setRegion(e.target.value)}
+                  disabled={role === "Sales"}
+                >
+                  <option value="North">North</option>
+                  <option value="South">South</option>
+                </select>
+              )}
               <button
                 onClick={() => signOut(auth)}
                 className="text-sm text-slate-400 hover:text-slate-100 border border-slate-700 rounded-lg px-3 py-1.5 hover:bg-slate-800 transition"

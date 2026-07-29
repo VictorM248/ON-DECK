@@ -9,6 +9,7 @@ export type StoreSettings = {
   showNewUsed?: boolean;
   splitRegionView?: boolean;
   northSouthTransfer?: boolean;
+  regionSwitching?: boolean;
 };
 
 const defaults: StoreSettings = {
@@ -17,6 +18,7 @@ const defaults: StoreSettings = {
   rotationStartedAt: undefined,
   splitRegionView: false,
   northSouthTransfer: false,
+  regionSwitching: false,
 };
 
 export function useStoreSettings(storeId: string) {
