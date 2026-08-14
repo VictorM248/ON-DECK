@@ -139,7 +139,7 @@ export function AuthGate({ children, onStoreId, onRole }: { children: React.Reac
             <div className="text-sm text-slate-400 mb-6">Sign in with your Dalton Corp account</div>
             <button
               onClick={() => signInWithPopup(auth, microsoftProvider)}
-              className="w-full flex items-center justify-center gap-3 bg-[#1e3a5f] hover:bg-[#16304f] transition rounded-xl py-3 text-sm font-bold text-white"
+              className="w-full flex items-center justify-center gap-3 bg-[#1e3a5f] hover:bg-[#16304f] transition rounded-xl py-3 text-sm font-bold text-white cursor-pointer"
             >
               <svg width="18" height="18" viewBox="0 0 21 21" fill="none">
                 <rect x="1" y="1" width="9" height="9" fill="#f25022"/>

@@ -6,7 +6,7 @@ import { List, Users, CheckCircle, Handshake, BarChart3, DoorOpen, Phone, Globe,
 import { auth, db } from "../lib/firebase";
 import { useStoreSettings } from "../lib/useStoreSettings";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { collection, getDocs, updateDoc, deleteDoc, doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { collection, getDocs, updateDoc, deleteDoc, doc, getDoc, setDoc, serverTimestamp, query, where } from "firebase/firestore";
 
 
 
@@ -402,6 +402,19 @@ const [mgrStartRegion, setMgrStartRegion] = useState<string>("");
     await updateDoc(ref, { queue: newQueue });
   }, [queue, storeId, region]);
 
+  const fetchEntriesForMonth = useCallback(async (monthKey: string, currentMonth: string) => {
+    if (monthKey === currentMonth) {
+      const north = await getDoc(doc(db, "stores", storeId, "regions", "North"));
+      const south = await getDoc(doc(db, "stores", storeId, "regions", "South"));
+      return [
+        ...((north.data()?.completed ?? []) as Entry[]),
+        ...((south.data()?.completed ?? []) as Entry[]),
+      ];
+    }
+    const archiveSnap = await getDoc(doc(db, "stores", storeId, "archive", monthKey));
+    return (archiveSnap.data()?.entries ?? []) as Entry[];
+  }, [storeId]);
+
   const fetchAnalytics = useCallback(async () => {
   if (!storeId) return;
   setArchiveLoading(true);
@@ -430,25 +443,22 @@ const [mgrStartRegion, setMgrStartRegion] = useState<string>("");
     filterEnd = filterStart + 7 * 86400000;
   }
 
-  // Determine which month(s) to fetch from Firestore
-  const monthToFetch = rangeMode === "month"
-    ? analyticsMonth
-    : rangeMode === "day"
-    ? analyticsDay.slice(0, 7)
-    : analyticsWeek.slice(0, 4) + "-" + String(parseInt(analyticsWeek.slice(6)) > 0 ? analyticsWeek.slice(6) : "01").padStart(2, "0");
-
   let entries: Entry[] = [];
 
-  if (monthToFetch === currentMonth) {
-    const north = await getDoc(doc(db, "stores", storeId, "regions", "North"));
-    const south = await getDoc(doc(db, "stores", storeId, "regions", "South"));
-    entries = [
-      ...((north.data()?.completed ?? []) as Entry[]),
-      ...((south.data()?.completed ?? []) as Entry[]),
-    ];
+  if (rangeMode === "week" && filterStart !== null && filterEnd !== null) {
+    // A week can span two different months (e.g. Dec 29 - Jan 4).
+    // Figure out every month the range touches and fetch each one.
+    const startDate = new Date(filterStart);
+    const endDate = new Date(filterEnd - 1); // last ms actually inside the week
+    const startMonthKey = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, "0")}`;
+    const endMonthKey = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, "0")}`;
+
+    const monthKeys = startMonthKey === endMonthKey ? [startMonthKey] : [startMonthKey, endMonthKey];
+    const results = await Promise.all(monthKeys.map((mk) => fetchEntriesForMonth(mk, currentMonth)));
+    entries = results.flat();
   } else {
-    const archiveSnap = await getDoc(doc(db, "stores", storeId, "archive", monthToFetch));
-    entries = (archiveSnap.data()?.entries ?? []) as Entry[];
+    const monthToFetch = rangeMode === "month" ? analyticsMonth : analyticsDay.slice(0, 7);
+    entries = await fetchEntriesForMonth(monthToFetch, currentMonth);
   }
 
   // Apply day/week filter client-side using serviceEnd
@@ -460,7 +470,7 @@ const [mgrStartRegion, setMgrStartRegion] = useState<string>("");
 
   setArchiveEntries(entries);
   setArchiveLoading(false);
-}, [storeId, analyticsMonth, analyticsDay, analyticsWeek, rangeMode]);
+}, [storeId, analyticsMonth, analyticsDay, analyticsWeek, rangeMode, fetchEntriesForMonth]);
 
   useEffect(() => {
     if (panel === "analytics") fetchAnalytics();
@@ -469,17 +479,36 @@ const [mgrStartRegion, setMgrStartRegion] = useState<string>("");
   const fetchUsers = useCallback(async () => {
     if (!isAdminOrOwner) return;
     setUsersLoading(true);
-    const snap = await getDocs(collection(db, "users"));
-    const list: UserRecord[] = snap.docs.map((d) => ({
+    const usersRef = collection(db, "users");
+
+    const toRecord = (d: any): UserRecord => ({
       uid: d.id,
       email: d.data().email ?? "",
       displayName: d.data().displayName ?? "",
       role: d.data().role ?? "sales",
       storeId: d.data().storeId ?? "",
-    }));
-    setUsers(list);
+    });
+
+    if (isOwner) {
+      const snap = await getDocs(usersRef);
+      setUsers(snap.docs.map(toRecord));
+    } else {
+      const [storeSnap, unassignedSnap] = await Promise.all([
+        getDocs(query(usersRef, where("storeId", "==", currentUserStoreId))),
+        getDocs(query(usersRef, where("storeId", "==", ""))),
+      ]);
+      const seen = new Set<string>();
+      const list: UserRecord[] = [];
+      for (const d of [...storeSnap.docs, ...unassignedSnap.docs]) {
+        if (seen.has(d.id)) continue;
+        seen.add(d.id);
+        list.push(toRecord(d));
+      }
+      setUsers(list);
+    }
+
     setUsersLoading(false);
-  }, [isAdminOrOwner]);
+  }, [isAdminOrOwner, isOwner, currentUserStoreId]);
 
   useEffect(() => {
     fetchUsers();
@@ -487,14 +516,16 @@ const [mgrStartRegion, setMgrStartRegion] = useState<string>("");
 
   // Fetch manager users for the completion flow
   useEffect(() => {
-    if (!storeId) return;
-    getDocs(collection(db, "users")).then((snap) => {
+    if (!storeId || !currentUserStoreId) return;
+    const usersRef = collection(db, "users");
+    const q = isOwner ? usersRef : query(usersRef, where("storeId", "==", currentUserStoreId));
+    getDocs(q).then((snap) => {
       const managers = snap.docs
         .filter((d) => ["manager", "admin", "owner"].includes(d.data().role ?? "") && d.data().storeId === currentUserStoreId)
         .map((d) => ({ uid: d.id, displayName: d.data().displayName ?? "" }));
       setMgrManagerUsers(managers);
     });
-  }, [storeId, currentUserStoreId]);
+  }, [storeId, currentUserStoreId, isOwner]);
 
   async function updateUser(uid: string, field: "role" | "storeId", value: string) {
     await updateDoc(doc(db, "users", uid), { [field]: value });
