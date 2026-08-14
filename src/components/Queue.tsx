@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { auth, db } from "../lib/firebase";
+import { doc, updateDoc } from "firebase/firestore";
+import { db } from "../lib/firebase";
 import {
   useStoreFeed,
   type QueueEntry,
@@ -110,6 +110,7 @@ export default function Queue({
   const [pendingReason, setPendingReason] = useState<EarlyReason | undefined>(undefined);
   const [regionSwitchConfirmOpen, setRegionSwitchConfirmOpen] = useState(false);
   const [pendingJoinType, setPendingJoinType] = useState<FeedJoinType | null>(null);
+  const [pendingSwitchEntry, setPendingSwitchEntry] = useState<{ firstName: string; lastName: string; email: string; note: string } | null>(null);
 
   // ---- Firestore write helper ----
   const stripUndefined = <T,>(obj: T): T =>
@@ -291,6 +292,7 @@ export default function Queue({
 
       const inOtherQueue = queueOther.some((e) => e.email.toLowerCase() === em);
       if (inOtherQueue) {
+        setPendingSwitchEntry({ firstName: fn, lastName: ln, email: em, note: nt });
         setPendingJoinType("walk-in" as FeedJoinType);
         setRegionSwitchConfirmOpen(true);
         return;
@@ -342,18 +344,12 @@ export default function Queue({
 
 
   const confirmRegionSwitch = async () => {
-    const u = auth.currentUser;
-    if (!u) return;
-    const emailUid = (u.email ?? "").toLowerCase().replace(/[^a-z0-9]/g, "_");
-    const snap = await getDoc(doc(db, "users", emailUid));
-    const userData = snap.data();
-    const firstName = userData?.firstName ?? userData?.displayName?.split(" ")[0] ?? "Unknown";
-    const lastName = userData?.lastName ?? userData?.displayName?.split(" ").slice(1).join(" ") ?? "";
-    const email = u.email ?? "";
+    if (!pendingSwitchEntry) return;
+    const { firstName, lastName, email, note } = pendingSwitchEntry;
 
     const otherRef = doc(db, "stores", storeId, "regions", otherRegion);
     await updateDoc(otherRef, {
-      queue: queueOther.filter((e) => e.email !== email),
+      queue: queueOther.filter((e) => e.email.toLowerCase() !== email.toLowerCase()),
     });
 
     await setLists({
@@ -364,7 +360,7 @@ export default function Queue({
           firstName,
           lastName,
           email,
-          note: "",
+          note,
           joinedAt: Date.now(),
         },
       ],
@@ -374,6 +370,7 @@ export default function Queue({
 
     setRegionSwitchConfirmOpen(false);
     setPendingJoinType(null);
+    setPendingSwitchEntry(null);
   };
 
   const openJoinTypeModal = (entryId: string) => setSelectedEntryId(entryId);
@@ -1039,7 +1036,7 @@ export default function Queue({
             </p>
             <div className="flex gap-2">
               <button
-                onClick={() => { setRegionSwitchConfirmOpen(false); setPendingJoinType(null); }}
+                onClick={() => { setRegionSwitchConfirmOpen(false); setPendingJoinType(null); setPendingSwitchEntry(null); }}
                 className="flex-1 rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
               >
                 Cancel
