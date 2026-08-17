@@ -1218,8 +1218,8 @@ const ListCard = ({
       <div className="flex flex-col gap-2 max-h-80 overflow-y-auto">
         {assignedUsers.filter((u) => u.role === "sales" || u.role === "manager").map((u) => {
           const initials = (u.displayName?.[0] ?? "?").toUpperCase();
-          const alreadyNorth = queueNorth.some((q) => q.email === u.email);
-          const alreadySouth = queueSouth.some((q) => q.email === u.email);
+          const alreadyNorth = queueNorth.some((q) => q.email === u.email) || (dataNorth.active ?? []).some((q) => (q as Entry).email === u.email);
+          const alreadySouth = queueSouth.some((q) => q.email === u.email) || (dataSouth.active ?? []).some((q) => (q as Entry).email === u.email);
           const alreadyEither = alreadyNorth || alreadySouth;
           return (
             <div key={u.uid} className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2">

@@ -50,6 +50,7 @@ export default function Queue({
   const { data: dataOther } = useStoreFeed(storeId, region === "North" ? "South" : "North");
   const { settings, updateSetting } = useStoreSettings(storeId);
   const queueOther = (dataOther.queue ?? []) as Entry[];
+  const activeOther = (dataOther.active ?? []) as Entry[];
   const otherRegion = region === "North" ? "South" : "North";
   const showNewUsed = settings.showNewUsed ?? false;
 
@@ -291,6 +292,12 @@ export default function Queue({
 
       // Cross-region check stays on local state — it's just prompting the
       // "switch regions?" confirmation, not the source of truth for the write.
+      const inOtherActive = activeOther.some((e) => e.email.toLowerCase() === em);
+      if (inOtherActive) {
+        alert("This person is currently with a customer in the other region.");
+        return;
+      }
+
       const inOtherQueue = queueOther.some((e) => e.email.toLowerCase() === em);
       if (inOtherQueue) {
         setPendingSwitchEntry({ firstName: fn, lastName: ln, email: em, note: nt });
@@ -334,7 +341,7 @@ export default function Queue({
 
       onAddSavedName?.(fn, ln, em);
     },
-    [queueOther, updateFeedTx, onAddSavedName]
+    [queueOther, activeOther, updateFeedTx, onAddSavedName]
   );
 
 
