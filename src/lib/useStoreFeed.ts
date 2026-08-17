@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { doc, onSnapshot, setDoc, updateDoc, getDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, getDoc, runTransaction } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 
@@ -35,12 +35,10 @@ type StoreFeed = {
   completed: QueueEntry[];
 };
 
+const emptyFeed: StoreFeed = { queue: [], active: [], completed: [] };
+
 export function useStoreFeed(storeId: string, region: string) {
-  const [data, setData] = useState<StoreFeed>({
-    queue: [],
-    active: [],
-    completed: [],
-  });
+  const [data, setData] = useState<StoreFeed>(emptyFeed);
 
   useEffect(() => {
     const ref = doc(db, "stores", storeId, "regions", region);
@@ -75,18 +73,37 @@ export function useStoreFeed(storeId: string, region: string) {
     const ref = doc(db, "stores", storeId, "regions", region);
     const snap = await getDoc(ref);
     if (!snap.exists()) {
-      await setDoc(ref, {
-        queue: [],
-        active: [],
-        completed: [],
-      });
+      await setDoc(ref, emptyFeed);
     }
   };
 
+  // Legacy-style update — still works, but computes from whatever local state
+  // the caller already has. Prefer updateFeedTx below for anything that reads
+  // queue/active/completed before deciding what to write.
   const updateFeed = async (partial: Partial<StoreFeed>) => {
     const ref = doc(db, "stores", storeId, "regions", region);
-    await updateDoc(ref, partial);
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref);
+      const current = (snap.exists() ? snap.data() : emptyFeed) as StoreFeed;
+      tx.set(ref, { ...current, ...partial });
+    });
   };
 
-  return { data, initIfMissing, updateFeed };
+  // Transaction-safe update — pass a function that computes the next state
+  // FROM the live server data, not from local React state. This closes the
+  // race-condition gap: Firestore re-reads fresh data on each retry if another
+  // write happened in between, so nothing gets silently overwritten.
+  const updateFeedTx = async (
+    updater: (current: StoreFeed) => Partial<StoreFeed>
+  ) => {
+    const ref = doc(db, "stores", storeId, "regions", region);
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(ref);
+      const current = (snap.exists() ? (snap.data() as StoreFeed) : emptyFeed);
+      const next = updater(current);
+      tx.set(ref, { ...current, ...next });
+    });
+  };
+
+  return { data, initIfMissing, updateFeed, updateFeedTx };
 }

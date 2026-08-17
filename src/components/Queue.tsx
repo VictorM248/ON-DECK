@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, runTransaction } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import {
   useStoreFeed,
@@ -46,7 +46,7 @@ export default function Queue({
   onAddSavedName,
   registerAddHandler,
 }: QueueProps) {
-  const { data, initIfMissing, updateFeed } = useStoreFeed(storeId, region);
+  const { data, initIfMissing, updateFeedTx } = useStoreFeed(storeId, region);
   const { data: dataOther } = useStoreFeed(storeId, region === "North" ? "South" : "North");
   const { settings, updateSetting } = useStoreSettings(storeId);
   const queueOther = (dataOther.queue ?? []) as Entry[];
@@ -85,7 +85,7 @@ export default function Queue({
     if (elapsed < THIRTY_MINUTES) return;
 
     const rotated = [...queue.slice(1), queue[0]];
-    setLists({ queue: rotated, active, completed });
+    void setListsTx(() => ({ queue: rotated }));
     updateSetting("rotationStartedAt", Date.now());
   }, [now, settings.queueRotation, settings.rotationStartedAt, queue.length]);
 
@@ -116,22 +116,29 @@ export default function Queue({
   const stripUndefined = <T,>(obj: T): T =>
     JSON.parse(JSON.stringify(obj)) as T;
 
-  const setLists = useCallback(
-    async (next: { queue: Entry[]; active: Entry[]; completed: Entry[] }) => {
-      const cleaned = stripUndefined({
-        queue: next.queue,
-        active: next.active,
-        completed: next.completed,
-      });
+  type Lists = { queue: Entry[]; active: Entry[]; completed: Entry[] };
+
+  // Transaction-safe write: `updater` receives Firestore's LIVE data at write
+  // time (not local React state), so concurrent taps/devices can't silently
+  // overwrite each other. Return only the keys you want changed.
+  const setListsTx = useCallback(
+    async (updater: (current: Lists) => Partial<Lists>) => {
       try {
-        await updateFeed(cleaned);
+        await updateFeedTx((current) => {
+          const casted: Lists = {
+            queue: (current.queue ?? []) as Entry[],
+            active: (current.active ?? []) as Entry[],
+            completed: (current.completed ?? []) as Entry[],
+          };
+          return stripUndefined(updater(casted));
+        });
       } catch (err) {
         console.error("Firestore update failed:", err);
         alert("Save failed. Check console for details.");
         throw err;
       }
     },
-    [updateFeed]
+    [updateFeedTx]
   );
 
   const fullName = (e: Entry) => `${e.firstName} ${e.lastName}`.trim();
@@ -265,7 +272,7 @@ export default function Queue({
     return null;
   };
 
-  // Add from modal (now includes email, required)
+// Add from modal (now includes email, required)
   const addFromModal = useCallback(
     async (firstName: string, lastName: string, email: string, note: string) => {
       const fn = firstName.trim();
@@ -282,38 +289,52 @@ export default function Queue({
         return;
       }
 
-      const alreadyInQueue = queue.some((e) => e.email.toLowerCase() === em);
-      const alreadyActive = active.some((e) => e.email.toLowerCase() === em);
-
-      if (alreadyInQueue || alreadyActive) {
-        alert("You're already in the queue or currently with a customer.");
-        return;
-      }
-
+      // Cross-region check stays on local state — it's just prompting the
+      // "switch regions?" confirmation, not the source of truth for the write.
       const inOtherQueue = queueOther.some((e) => e.email.toLowerCase() === em);
       if (inOtherQueue) {
         setPendingSwitchEntry({ firstName: fn, lastName: ln, email: em, note: nt });
-        setPendingJoinType("walk-in" as FeedJoinType);
         setRegionSwitchConfirmOpen(true);
         return;
       }
 
-      const nextQueue: Entry[] = [
-        ...queue,
-        {
-          id: crypto.randomUUID(),
-          firstName: fn,
-          lastName: ln,
-          email: em,
-          note: nt,
-          joinedAt: Date.now(),
-        },
-      ];
+      // Same-region duplicate check + write now happen inside one transaction,
+      // against Firestore's live data — closes the race condition from
+      // rapid double-taps or two devices adding the same person at once.
+      let blocked = false;
+      await updateFeedTx((current) => {
+        const em2 = em; // captured for clarity inside closure
+        const alreadyInQueue = current.queue.some((e) => e.email.toLowerCase() === em2);
+        const alreadyActive = current.active.some((e) => e.email.toLowerCase() === em2);
 
-      await setLists({ queue: nextQueue, active, completed });
+        if (alreadyInQueue || alreadyActive) {
+          blocked = true;
+          return {}; // no changes — leaves queue/active exactly as they are
+        }
+
+        return {
+          queue: [
+            ...current.queue,
+            {
+              id: crypto.randomUUID(),
+              firstName: fn,
+              lastName: ln,
+              email: em,
+              note: nt,
+              joinedAt: Date.now(),
+            },
+          ],
+        };
+      });
+
+      if (blocked) {
+        alert("You're already in the queue or currently with a customer.");
+        return;
+      }
+
       onAddSavedName?.(fn, ln, em);
     },
-    [queue, active, completed, setLists, onAddSavedName]
+    [queueOther, updateFeedTx, onAddSavedName]
   );
 
 
@@ -323,22 +344,21 @@ export default function Queue({
   }, [registerAddHandler, addFromModal]);
 
   const removeFromQueue = async (id: string) => {
-  const idx = queue.findIndex((e) => e.id === id);
-  await setLists({
-    queue: queue.filter((e) => e.id !== id),
-    active,
-    completed,
+  let removedIndex = -1;
+  await setListsTx((current) => {
+    removedIndex = current.queue.findIndex((e) => e.id === id);
+    return { queue: current.queue.filter((e) => e.id !== id) };
   });
 
   // Reset rotation timer if the #1 person was removed
-  if (idx === 0 && settings.queueRotation) {
+  if (removedIndex === 0 && settings.queueRotation) {
     await updateSetting("rotationStartedAt", Date.now());
   }
 };
 
   const clearQueue = async () => {
     if (window.confirm("Clear the entire queue?")) {
-      await setLists({ queue: [], active, completed });
+      await setListsTx(() => ({ queue: [] }));
     }
   };
 
@@ -347,25 +367,27 @@ export default function Queue({
     if (!pendingSwitchEntry) return;
     const { firstName, lastName, email, note } = pendingSwitchEntry;
 
+    const thisRef = doc(db, "stores", storeId, "regions", region);
     const otherRef = doc(db, "stores", storeId, "regions", otherRegion);
-    await updateDoc(otherRef, {
-      queue: queueOther.filter((e) => e.email.toLowerCase() !== email.toLowerCase()),
-    });
+    const emptyLists = { queue: [] as Entry[], active: [] as Entry[], completed: [] as Entry[] };
 
-    await setLists({
-      queue: [
-        ...queue,
-        {
-          id: crypto.randomUUID(),
-          firstName,
-          lastName,
-          email,
-          note,
-          joinedAt: Date.now(),
-        },
-      ],
-      active,
-      completed,
+    // Cross-document transaction: reads BOTH region docs live at write time,
+    // so this can't collide with someone else editing either region's queue.
+    await runTransaction(db, async (tx) => {
+      const [thisSnap, otherSnap] = await Promise.all([tx.get(thisRef), tx.get(otherRef)]);
+      const thisData = (thisSnap.exists() ? thisSnap.data() : emptyLists) as typeof emptyLists;
+      const otherData = (otherSnap.exists() ? otherSnap.data() : emptyLists) as typeof emptyLists;
+
+      const nextOtherQueue = (otherData.queue ?? []).filter(
+        (e) => e.email.toLowerCase() !== email.toLowerCase()
+      );
+      const nextThisQueue = [
+        ...(thisData.queue ?? []),
+        { id: crypto.randomUUID(), firstName, lastName, email, note, joinedAt: Date.now() },
+      ];
+
+      tx.set(otherRef, { ...otherData, queue: nextOtherQueue });
+      tx.set(thisRef, { ...thisData, queue: nextThisQueue });
     });
 
     setRegionSwitchConfirmOpen(false);
@@ -377,26 +399,30 @@ export default function Queue({
 
   const confirmMoveWithType = async (type: JoinType) => {
     if (!selectedEntryId) return;
-    const idx = queue.findIndex((e) => e.id === selectedEntryId);
-    const entry = queue[idx];
-    if (!entry) {
-      setSelectedEntryId(null);
-      return;
-    }
-    const nextQueue = queue.filter((e) => e.id !== selectedEntryId);
-    const nextActive: Entry[] = [
-      ...active,
-      {
-        ...entry,
-        joinType: type,
-        serviceStart: Date.now(),
-        originalQueueIndex: idx,
-      },
-    ];
-    await setLists({ queue: nextQueue, active: nextActive, completed });
 
-    // Reset rotation timer only if the #1 person in queue was moved
-    if (idx === 0 && settings.queueRotation) {
+    let rotationReset = false;
+    await setListsTx((current) => {
+      const idx = current.queue.findIndex((e) => e.id === selectedEntryId);
+      const entry = current.queue[idx];
+      if (!entry) return {};
+
+      const nextQueue = current.queue.filter((e) => e.id !== selectedEntryId);
+      const nextActive: Entry[] = [
+        ...current.active,
+        {
+          ...entry,
+          joinType: type,
+          serviceStart: Date.now(),
+          originalQueueIndex: idx,
+        },
+      ];
+
+      if (idx === 0 && settings.queueRotation) rotationReset = true;
+
+      return { queue: nextQueue, active: nextActive };
+    });
+
+    if (rotationReset) {
       await updateSetting("rotationStartedAt", Date.now());
     }
 
@@ -448,12 +474,13 @@ export default function Queue({
 
   const saveTeamLabel = async () => {
     if (!teamEntryId) return;
-    const nextActive = active.map((e) =>
-      e.id === teamEntryId
-        ? { ...e, teamLabel: teamLabelInput.trim() || undefined }
-        : e
-    );
-    await setLists({ queue, active: nextActive, completed });
+    await setListsTx((current) => ({
+      active: current.active.map((e) =>
+        e.id === teamEntryId
+          ? { ...e, teamLabel: teamLabelInput.trim() || undefined }
+          : e
+      ),
+    }));
     closeTeamModal();
   };
 
@@ -467,14 +494,8 @@ export default function Queue({
 
   const handleConfirmComplete = async (reason?: EarlyReason, outcome?: VisitOutcome) => {
     if (!completeEntryId) return;
-    const entry = active.find((e) => e.id === completeEntryId);
-    if (!entry) {
-      closeCompleteModal();
-      return;
-    }
 
     let selectedIds = [...selectedManagerIds];
-
     if (selectedIds.length > 3) selectedIds = selectedIds.slice(0, 3);
 
     const idToName = new Map<string, string>();
@@ -486,79 +507,77 @@ export default function Queue({
 
     setSelectedManagerIds(selectedIds);
 
-    const end = Date.now();
-    const durationSec = entry.serviceStart
-      ? Math.max(0, Math.round((end - entry.serviceStart) / 1000))
-      : undefined;
+    await setListsTx((current) => {
+      const entry = current.active.find((e) => e.id === completeEntryId);
+      if (!entry) return {};
 
-    const completedEntry: Entry = {
-      ...entry,
-      managers: managersList,
-      earlyReason: reason ?? earlyReason ?? undefined,
-      serviceEnd: end,
-      durationSec,
-      visitOutcome: outcome ?? visitOutcome,
-    };
+      const end = Date.now();
+      const durationSec = entry.serviceStart
+        ? Math.max(0, Math.round((end - entry.serviceStart) / 1000))
+        : undefined;
 
-    const canSendTop = entry.serviceStart
-      ? now - entry.serviceStart < 2 * 60 * 1000
-      : true;
+      const completedEntry: Entry = {
+        ...entry,
+        managers: managersList,
+        earlyReason: reason ?? earlyReason ?? undefined,
+        serviceEnd: end,
+        durationSec,
+        visitOutcome: outcome ?? visitOutcome,
+      };
 
-    const finalPosition: "top" | "bottom" =
-      returnPosition === "top" && canSendTop ? "top" : "bottom";
+      const canSendTop = entry.serviceStart
+        ? now - entry.serviceStart < 2 * 60 * 1000
+        : true;
 
-    const requeuedEntry: Entry = {
-      id: crypto.randomUUID(),
-      firstName: entry.firstName,
-      lastName: entry.lastName,
-      email: entry.email,
-      note: "",
-      joinedAt: Date.now(),
-      serviceStart: undefined,
-      joinType: undefined,
-      managers: undefined,
-      teamLabel: undefined,
-      earlyReason: undefined,
-      serviceEnd: undefined,
-      durationSec: undefined,
-    };
+      const finalPosition: "top" | "bottom" =
+        returnPosition === "top" && canSendTop ? "top" : "bottom";
 
-    const nextActive = active.filter((e) => e.id !== completeEntryId);
-    const nextCompleted = [...completed, completedEntry];
+      const requeuedEntry: Entry = {
+        id: crypto.randomUUID(),
+        firstName: entry.firstName,
+        lastName: entry.lastName,
+        email: entry.email,
+        note: "",
+        joinedAt: Date.now(),
+        serviceStart: undefined,
+        joinType: undefined,
+        managers: undefined,
+        teamLabel: undefined,
+        earlyReason: undefined,
+        serviceEnd: undefined,
+        durationSec: undefined,
+      };
 
-    let nextQueue: Entry[];
-    if (finalPosition === "top") {
-      const originalIndex =
-        typeof entry.originalQueueIndex === "number" ? entry.originalQueueIndex : 0;
-      const safeIndex = Math.max(0, Math.min(originalIndex, queue.length));
-      nextQueue = [...queue];
-      nextQueue.splice(safeIndex, 0, requeuedEntry);
-    } else {
-      nextQueue = [...queue, requeuedEntry];
-    }
+      const nextActive = current.active.filter((e) => e.id !== completeEntryId);
+      const nextCompleted = [...current.completed, completedEntry];
 
-    await setLists({ queue: nextQueue, active: nextActive, completed: nextCompleted });
+      let nextQueue: Entry[];
+      if (finalPosition === "top") {
+        const originalIndex =
+          typeof entry.originalQueueIndex === "number" ? entry.originalQueueIndex : 0;
+        const safeIndex = Math.max(0, Math.min(originalIndex, current.queue.length));
+        nextQueue = [...current.queue];
+        nextQueue.splice(safeIndex, 0, requeuedEntry);
+      } else {
+        nextQueue = [...current.queue, requeuedEntry];
+      }
+
+      return { queue: nextQueue, active: nextActive, completed: nextCompleted };
+    });
+
     closeCompleteModal();
   };
 
   const removeCompletedEntry = async (id: string) => {
-    await setLists({
-      queue,
-      active,
-      completed: completed.filter((e) => e.id !== id),
-    });
+    await setListsTx((current) => ({
+      completed: current.completed.filter((e) => e.id !== id),
+    }));
   };
 
   const moveActiveBackToQueueOriginal = async () => {
     if (!doneActiveId) return;
-    const entry = active.find((e) => e.id === doneActiveId);
-    if (!entry) {
-      setDoneActiveId(null);
-      return;
-    }
 
     let selectedIds = [...selectedManagerIds];
-
     if (selectedIds.length > 3) selectedIds = selectedIds.slice(0, 3);
 
     const idToName = new Map<string, string>();
@@ -570,25 +589,30 @@ export default function Queue({
 
     setSelectedManagerIds(selectedIds);
 
-    const originalIndex =
-      typeof entry.originalQueueIndex === "number"
-        ? entry.originalQueueIndex
-        : queue.length;
+    await setListsTx((current) => {
+      const entry = current.active.find((e) => e.id === doneActiveId);
+      if (!entry) return {};
 
-    const safeIndex = Math.max(0, Math.min(originalIndex, queue.length));
+      const originalIndex =
+        typeof entry.originalQueueIndex === "number"
+          ? entry.originalQueueIndex
+          : current.queue.length;
 
-    const cleaned: Entry = {
-      ...entry,
-      serviceStart: undefined,
-      joinType: undefined,
-      managers: helpers.length > 0 ? helpers : entry.managers,
-    };
+      const safeIndex = Math.max(0, Math.min(originalIndex, current.queue.length));
 
-    const nextActive = active.filter((e) => e.id !== doneActiveId);
-    const nextQueue = [...queue];
-    nextQueue.splice(safeIndex, 0, cleaned);
+      const cleaned: Entry = {
+        ...entry,
+        serviceStart: undefined,
+        joinType: undefined,
+        managers: helpers.length > 0 ? helpers : entry.managers,
+      };
 
-    await setLists({ queue: nextQueue, active: nextActive, completed });
+      const nextActive = current.active.filter((e) => e.id !== doneActiveId);
+      const nextQueue = [...current.queue];
+      nextQueue.splice(safeIndex, 0, cleaned);
+
+      return { queue: nextQueue, active: nextActive };
+    });
 
     setDoneActiveId(null);
     setSelectedManagerIds([]);
@@ -643,10 +667,11 @@ export default function Queue({
               <div className="flex gap-2 mt-1 justify-center">
                 <button
                   onClick={async () => {
-                    const nextQueue = queue.map((e) =>
-                      e.id === selectedEntryId ? { ...e, onLunch: true } : e
-                    );
-                    await setLists({ queue: nextQueue, active, completed });
+                    await setListsTx((current) => ({
+                      queue: current.queue.map((e) =>
+                        e.id === selectedEntryId ? { ...e, onLunch: true } : e
+                      ),
+                    }));
                     setSelectedEntryId(null);
                   }}
                   className="flex items-center justify-center gap-2 rounded-full border border-amber-500/40 bg-amber-600/20 px-4 py-2 text-sm font-medium text-amber-200 hover:bg-amber-600/30 whitespace-nowrap"
@@ -655,10 +680,11 @@ export default function Queue({
                 </button>
                 <button
                   onClick={async () => {
-                    const nextQueue = queue.map((e) =>
-                      e.id === selectedEntryId ? { ...e, onLunch: false } : e
-                    );
-                    await setLists({ queue: nextQueue, active, completed });
+                    await setListsTx((current) => ({
+                      queue: current.queue.map((e) =>
+                        e.id === selectedEntryId ? { ...e, onLunch: false } : e
+                      ),
+                    }));
                     setSelectedEntryId(null);
                   }}
                   className="flex items-center justify-center gap-2 rounded-full border border-green-500/40 bg-green-600/20 px-4 py-2 text-sm font-medium text-green-200 hover:bg-green-600/30 whitespace-nowrap"

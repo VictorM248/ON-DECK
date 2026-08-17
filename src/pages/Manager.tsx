@@ -6,7 +6,7 @@ import { List, Users, CheckCircle, Handshake, BarChart3, DoorOpen, Phone, Globe,
 import { auth, db } from "../lib/firebase";
 import { useStoreSettings } from "../lib/useStoreSettings";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { collection, getDocs, updateDoc, deleteDoc, doc, getDoc, setDoc, serverTimestamp, query, where } from "firebase/firestore";
+import { collection, getDocs, updateDoc, deleteDoc, doc, getDoc, setDoc, serverTimestamp, query, where, runTransaction } from "firebase/firestore";
 
 
 
@@ -264,6 +264,46 @@ const [mgrStartRegion, setMgrStartRegion] = useState<string>("");
     return () => unsubscribe();
   }, []);
 
+  type RegionDoc = { queue: Entry[]; active: Entry[]; completed: Entry[] };
+  const emptyRegionDoc: RegionDoc = { queue: [], active: [], completed: [] };
+
+  // Transaction-safe single-region update: reads live server data at write
+  // time instead of local state, closing the race-condition gap.
+  const updateRegionTx = useCallback(
+    async (regionName: string, updater: (current: RegionDoc) => Partial<RegionDoc>) => {
+      const ref = doc(db, "stores", storeId, "regions", regionName);
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        const current = (snap.exists() ? (snap.data() as RegionDoc) : emptyRegionDoc);
+        const next = updater(current);
+        tx.set(ref, { ...current, ...next });
+      });
+    },
+    [storeId]
+  );
+
+  // Transaction-safe cross-region update (North <-> South transfers): reads
+  // BOTH docs live in one atomic transaction.
+  const transferRegionTx = useCallback(
+    async (
+      fromRegion: string,
+      toRegion: string,
+      updater: (from: RegionDoc, to: RegionDoc) => { from: Partial<RegionDoc>; to: Partial<RegionDoc> }
+    ) => {
+      const fromRef = doc(db, "stores", storeId, "regions", fromRegion);
+      const toRef = doc(db, "stores", storeId, "regions", toRegion);
+      await runTransaction(db, async (tx) => {
+        const [fromSnap, toSnap] = await Promise.all([tx.get(fromRef), tx.get(toRef)]);
+        const fromData = (fromSnap.exists() ? (fromSnap.data() as RegionDoc) : emptyRegionDoc);
+        const toData = (toSnap.exists() ? (toSnap.data() as RegionDoc) : emptyRegionDoc);
+        const { from, to } = updater(fromData, toData);
+        tx.set(fromRef, { ...fromData, ...from });
+        tx.set(toRef, { ...toData, ...to });
+      });
+    },
+    [storeId]
+  );
+
   const isOwner = currentUserRole === "owner";
   const isAdminOrOwner = currentUserRole === "admin" || currentUserRole === "owner";
   const isManagerLike = currentUserRole === "manager" || currentUserRole === "admin" || currentUserRole === "owner";
@@ -282,14 +322,7 @@ const [mgrStartRegion, setMgrStartRegion] = useState<string>("");
 
   const handleMgrConfirmComplete = async (reason?: "service" | "parts" | "finance" | "other", outcome?: typeof mgrVisitOutcome) => {
     if (!mgrCompleteEntryId) return;
-    const regionActive = dataNorth.active?.some((a) => a.id === mgrCompleteEntryId)
-      ? (dataNorth.active ?? []) as Entry[]
-      : (dataSouth.active ?? []) as Entry[];
-    const regionQueue = dataNorth.active?.some((a) => a.id === mgrCompleteEntryId)
-      ? (dataNorth.queue ?? []) as Entry[]
-      : (dataSouth.queue ?? []) as Entry[];
-    const entry = regionActive.find((e) => e.id === mgrCompleteEntryId);
-    if (!entry) { closeMgrCompleteModal(); return; }
+    const entryRegion = dataNorth.active?.some((a) => a.id === mgrCompleteEntryId) ? "North" : "South";
 
     const idToName = new Map<string, string>();
     for (const m of mgrManagerUsers) idToName.set(m.uid, m.displayName);
@@ -297,69 +330,66 @@ const [mgrStartRegion, setMgrStartRegion] = useState<string>("");
       .map((id) => idToName.get(id))
       .filter((x): x is string => Boolean(x));
 
-    const end = Date.now();
-    const durationSec = entry.serviceStart
-      ? Math.max(0, Math.round((end - entry.serviceStart) / 1000))
-      : undefined;
+    await updateRegionTx(entryRegion, (current) => {
+      const entry = current.active.find((e) => e.id === mgrCompleteEntryId);
+      if (!entry) return {};
 
-    const completedEntry: Entry = {
-      id: entry.id,
-      firstName: entry.firstName,
-      lastName: entry.lastName,
-      email: entry.email,
-      note: entry.note ?? "",
-      joinedAt: entry.joinedAt,
-      ...(entry.joinType ? { joinType: entry.joinType } : {}),
-      ...(entry.teamLabel ? { teamLabel: entry.teamLabel } : {}),
-      ...(entry.originalQueueIndex !== undefined ? { originalQueueIndex: entry.originalQueueIndex } : {}),
-      ...(managersList.length > 0 ? { managers: managersList } : {}),
-      ...(reason ?? mgrEarlyReason ? { earlyReason: reason ?? mgrEarlyReason ?? undefined } : {}),
-      serviceEnd: end,
-      ...(durationSec !== undefined ? { durationSec } : {}),
-      visitOutcome: outcome ?? mgrVisitOutcome,
-    };
+      const end = Date.now();
+      const durationSec = entry.serviceStart
+        ? Math.max(0, Math.round((end - entry.serviceStart) / 1000))
+        : undefined;
 
-    const canSendTop = entry.serviceStart ? now - entry.serviceStart < 2 * 60 * 1000 : true;
-    const finalPosition = mgrReturnPosition === "top" && canSendTop ? "top" : "bottom";
+      const completedEntry: Entry = {
+        id: entry.id,
+        firstName: entry.firstName,
+        lastName: entry.lastName,
+        email: entry.email,
+        note: entry.note ?? "",
+        joinedAt: entry.joinedAt,
+        ...(entry.joinType ? { joinType: entry.joinType } : {}),
+        ...(entry.teamLabel ? { teamLabel: entry.teamLabel } : {}),
+        ...(entry.originalQueueIndex !== undefined ? { originalQueueIndex: entry.originalQueueIndex } : {}),
+        ...(managersList.length > 0 ? { managers: managersList } : {}),
+        ...(reason ?? mgrEarlyReason ? { earlyReason: reason ?? mgrEarlyReason ?? undefined } : {}),
+        serviceEnd: end,
+        ...(durationSec !== undefined ? { durationSec } : {}),
+        visitOutcome: outcome ?? mgrVisitOutcome,
+      };
 
-    const requeuedEntry: Entry = {
-      id: crypto.randomUUID(),
-      firstName: entry.firstName,
-      lastName: entry.lastName,
-      email: entry.email,
-      note: "",
-      joinedAt: Date.now(),
-    };
+      const canSendTop = entry.serviceStart ? now - entry.serviceStart < 2 * 60 * 1000 : true;
+      const finalPosition = mgrReturnPosition === "top" && canSendTop ? "top" : "bottom";
 
-    const nextActive = regionActive.filter((e) => e.id !== mgrCompleteEntryId);
-    const nextCompleted = [...(dataNorth.active?.some((a) => a.id === mgrCompleteEntryId) ? (dataNorth.completed ?? []) : (dataSouth.completed ?? [])) as Entry[], completedEntry];
+      const requeuedEntry: Entry = {
+        id: crypto.randomUUID(),
+        firstName: entry.firstName,
+        lastName: entry.lastName,
+        email: entry.email,
+        note: "",
+        joinedAt: Date.now(),
+      };
 
-    let nextQueue: Entry[];
-    if (finalPosition === "top") {
-      const originalIndex = typeof entry.originalQueueIndex === "number" ? entry.originalQueueIndex : 0;
-      const safeIndex = Math.max(0, Math.min(originalIndex, regionQueue.length));
-      nextQueue = [...regionQueue];
-      nextQueue.splice(safeIndex, 0, requeuedEntry);
-    } else {
-      nextQueue = [...regionQueue, requeuedEntry];
-    }
+      const nextActive = current.active.filter((e) => e.id !== mgrCompleteEntryId);
+      const nextCompleted = [...current.completed, completedEntry];
 
-    const entryRegion = dataNorth.active?.some((a) => a.id === mgrCompleteEntryId) ? "North" : "South";
-    const regionRef = doc(db, "stores", storeId, "regions", entryRegion);
-    await updateDoc(regionRef, { queue: nextQueue, active: nextActive, completed: nextCompleted });
+      let nextQueue: Entry[];
+      if (finalPosition === "top") {
+        const originalIndex = typeof entry.originalQueueIndex === "number" ? entry.originalQueueIndex : 0;
+        const safeIndex = Math.max(0, Math.min(originalIndex, current.queue.length));
+        nextQueue = [...current.queue];
+        nextQueue.splice(safeIndex, 0, requeuedEntry);
+      } else {
+        nextQueue = [...current.queue, requeuedEntry];
+      }
+
+      return { queue: nextQueue, active: nextActive, completed: nextCompleted };
+    });
+
     closeMgrCompleteModal();
   };
 
   const handleMgrSendBackToQueue = async () => {
     if (!mgrDoneActiveId) return;
-    const regionActive = dataNorth.active?.some((a) => a.id === mgrDoneActiveId)
-      ? (dataNorth.active ?? []) as Entry[]
-      : (dataSouth.active ?? []) as Entry[];
-    const regionQueue = dataNorth.active?.some((a) => a.id === mgrDoneActiveId)
-      ? (dataNorth.queue ?? []) as Entry[]
-      : (dataSouth.queue ?? []) as Entry[];
-    const entry = regionActive.find((e) => e.id === mgrDoneActiveId);
-    if (!entry) { setMgrDoneActiveId(null); return; }
+    const entryRegion = dataNorth.active?.some((a) => a.id === mgrDoneActiveId) ? "North" : "South";
 
     const idToName = new Map<string, string>();
     for (const m of mgrManagerUsers) idToName.set(m.uid, m.displayName);
@@ -367,40 +397,56 @@ const [mgrStartRegion, setMgrStartRegion] = useState<string>("");
       .map((id) => idToName.get(id))
       .filter((x): x is string => Boolean(x));
 
-    const originalIndex = typeof entry.originalQueueIndex === "number" ? entry.originalQueueIndex : regionQueue.length;
-    const safeIndex = Math.max(0, Math.min(originalIndex, regionQueue.length));
+    await updateRegionTx(entryRegion, (current) => {
+      const entry = current.active.find((e) => e.id === mgrDoneActiveId);
+      if (!entry) return {};
 
-    const cleaned: Entry = {
-      id: entry.id,
-      firstName: entry.firstName,
-      lastName: entry.lastName,
-      email: entry.email,
-      note: entry.note ?? "",
-      joinedAt: entry.joinedAt,
-      originalQueueIndex: entry.originalQueueIndex,
-      ...(helpers.length > 0 ? { managers: helpers } : entry.managers ? { managers: entry.managers } : {}),
-    };
+      const originalIndex = typeof entry.originalQueueIndex === "number" ? entry.originalQueueIndex : current.queue.length;
+      const safeIndex = Math.max(0, Math.min(originalIndex, current.queue.length));
 
-    const nextActive = regionActive.filter((e) => e.id !== mgrDoneActiveId);
-    const nextQueue = [...regionQueue];
-    nextQueue.splice(safeIndex, 0, cleaned);
+      const cleaned: Entry = {
+        id: entry.id,
+        firstName: entry.firstName,
+        lastName: entry.lastName,
+        email: entry.email,
+        note: entry.note ?? "",
+        joinedAt: entry.joinedAt,
+        originalQueueIndex: entry.originalQueueIndex,
+        ...(helpers.length > 0 ? { managers: helpers } : entry.managers ? { managers: entry.managers } : {}),
+      };
 
-    const entryRegion = dataNorth.active?.some((a) => a.id === mgrDoneActiveId) ? "North" : "South";
-    const regionRef = doc(db, "stores", storeId, "regions", entryRegion);
-    const regionCompleted = entryRegion === "North" ? (dataNorth.completed ?? []) as Entry[] : (dataSouth.completed ?? []) as Entry[];
-    await updateDoc(regionRef, { queue: nextQueue, active: nextActive, completed: regionCompleted });
+      const nextActive = current.active.filter((e) => e.id !== mgrDoneActiveId);
+      const nextQueue = [...current.queue];
+      nextQueue.splice(safeIndex, 0, cleaned);
+
+      return { queue: nextQueue, active: nextActive };
+    });
+
     setMgrDoneActiveId(null);
     setMgrSelectedManagerIds([]);
   };
 
   const reorderQueue = useCallback(async (fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex) return;
-    const newQueue = [...queue];
-    const [moved] = newQueue.splice(fromIndex, 1);
-    newQueue.splice(toIndex, 0, moved);
-    const ref = doc(db, "stores", storeId, "regions", region);
-    await updateDoc(ref, { queue: newQueue });
-  }, [queue, storeId, region]);
+    const northRef = doc(db, "stores", storeId, "regions", "North");
+    const southRef = doc(db, "stores", storeId, "regions", "South");
+    const targetRef = doc(db, "stores", storeId, "regions", region);
+
+    await runTransaction(db, async (tx) => {
+      const [northSnap, southSnap] = await Promise.all([tx.get(northRef), tx.get(southRef)]);
+      const northData = (northSnap.exists() ? (northSnap.data() as RegionDoc) : emptyRegionDoc);
+      const southData = (southSnap.exists() ? (southSnap.data() as RegionDoc) : emptyRegionDoc);
+      const combinedQueue: Entry[] = [...(northData.queue ?? []), ...(southData.queue ?? [])];
+
+      const newQueue = [...combinedQueue];
+      const [moved] = newQueue.splice(fromIndex, 1);
+      if (moved === undefined) return;
+      newQueue.splice(toIndex, 0, moved);
+
+      const targetData = region === "North" ? northData : southData;
+      tx.set(targetRef, { ...targetData, queue: newQueue });
+    });
+  }, [storeId, region]);
 
   const fetchEntriesForMonth = useCallback(async (monthKey: string, currentMonth: string) => {
     if (monthKey === currentMonth) {
@@ -953,25 +999,18 @@ const ListCard = ({
           <button
             key={type}
             onClick={async () => {
-              const regionQueue = mgrStartRegion === "North" ? queueNorth : mgrStartRegion === "South" ? queueSouth : queue;
-              const regionActive = mgrStartRegion === "North" ? (dataNorth.active ?? []) as Entry[] : mgrStartRegion === "South" ? (dataSouth.active ?? []) as Entry[] : active;
-              const entryIdx = regionQueue.findIndex((q) => q.id === mgrStartEntryId);
-              const entry = regionQueue[entryIdx];
-              if (!entry) { setMgrStartEntryId(null); return; }
-              const nextQueue = regionQueue.filter((q) => q.id !== mgrStartEntryId);
-              const nextActive: Entry[] = [
-                ...regionActive,
-                {
-                  ...entry,
-                  joinType: type,
-                  serviceStart: Date.now(),
-                  originalQueueIndex: entryIdx,
-                },
-              ];
               const targetRegion = mgrStartRegion || region;
-              const ref = doc(db, "stores", storeId, "regions", targetRegion);
-              const regionCompleted = targetRegion === "North" ? (dataNorth.completed ?? []) as Entry[] : (dataSouth.completed ?? []) as Entry[];
-              await updateDoc(ref, { queue: nextQueue, active: nextActive, completed: regionCompleted });
+              await updateRegionTx(targetRegion, (current) => {
+                const entryIdx = current.queue.findIndex((q) => q.id === mgrStartEntryId);
+                const entry = current.queue[entryIdx];
+                if (!entry) return {};
+                const nextQueue = current.queue.filter((q) => q.id !== mgrStartEntryId);
+                const nextActive: Entry[] = [
+                  ...current.active,
+                  { ...entry, joinType: type, serviceStart: Date.now(), originalQueueIndex: entryIdx },
+                ];
+                return { queue: nextQueue, active: nextActive };
+              });
               setMgrStartEntryId(null);
             }}
             className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-left text-slate-100 hover:bg-slate-700"
@@ -1193,18 +1232,22 @@ const ListCard = ({
               </div>
               <div className="flex gap-2 shrink-0">
                 <button
-                  onClick={() => {
-                    if (alreadyNorth) return;
-                    const newEntry = {
-                      id: crypto.randomUUID(),
-                      firstName: u.displayName.split(" ")[0] ?? u.displayName,
-                      lastName: u.displayName.split(" ").slice(1).join(" ") ?? "",
-                      email: u.email,
-                      note: "",
-                      joinedAt: Date.now(),
-                    };
-                    const ref = doc(db, "stores", storeId, "regions", "North");
-                    updateDoc(ref, { queue: [...queueNorth, newEntry] });
+                  onClick={async () => {
+                    await updateRegionTx("North", (current) => {
+                      const exists =
+                        current.queue.some((q) => q.email === u.email) ||
+                        current.active.some((q) => q.email === u.email);
+                      if (exists) return {};
+                      const newEntry = {
+                        id: crypto.randomUUID(),
+                        firstName: u.displayName.split(" ")[0] ?? u.displayName,
+                        lastName: u.displayName.split(" ").slice(1).join(" ") ?? "",
+                        email: u.email,
+                        note: "",
+                        joinedAt: Date.now(),
+                      };
+                      return { queue: [...current.queue, newEntry] };
+                    });
                   }}
                   disabled={alreadyEither}
                   className="text-xs text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-full px-3 py-1"
@@ -1212,18 +1255,22 @@ const ListCard = ({
                   {alreadyNorth ? "In North" : alreadySouth ? "In South" : "+ North"}
                 </button>
                 <button
-                  onClick={() => {
-                    if (alreadySouth) return;
-                    const newEntry = {
-                      id: crypto.randomUUID(),
-                      firstName: u.displayName.split(" ")[0] ?? u.displayName,
-                      lastName: u.displayName.split(" ").slice(1).join(" ") ?? "",
-                      email: u.email,
-                      note: "",
-                      joinedAt: Date.now(),
-                    };
-                    const ref = doc(db, "stores", storeId, "regions", "South");
-                    updateDoc(ref, { queue: [...queueSouth, newEntry] });
+                  onClick={async () => {
+                    await updateRegionTx("South", (current) => {
+                      const exists =
+                        current.queue.some((q) => q.email === u.email) ||
+                        current.active.some((q) => q.email === u.email);
+                      if (exists) return {};
+                      const newEntry = {
+                        id: crypto.randomUUID(),
+                        firstName: u.displayName.split(" ")[0] ?? u.displayName,
+                        lastName: u.displayName.split(" ").slice(1).join(" ") ?? "",
+                        email: u.email,
+                        note: "",
+                        joinedAt: Date.now(),
+                      };
+                      return { queue: [...current.queue, newEntry] };
+                    });
                   }}
                   disabled={alreadyEither}
                   className="text-xs text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-full px-3 py-1"
@@ -1482,16 +1529,16 @@ const ListCard = ({
                                 {e.note ? <div className="text-xs text-slate-400 italic truncate">{e.note}</div> : null}
                                 <div className="text-[11px] text-slate-400">{e.joinedAt ? `Joined ${fmtTime(e.joinedAt)}` : ""}</div>
                               </div>
-                              {isAdminOrOwner && (
+                              {isManagerLike && (
                                 <div className="flex gap-2 ml-2">
                                   {settings.northSouthTransfer && (
                                   <button
                                     onClick={(ev) => {
                                       ev.stopPropagation();
-                                      const northRef = doc(db, "stores", storeId, "regions", "North");
-                                      const southRef = doc(db, "stores", storeId, "regions", "South");
-                                      updateDoc(northRef, { queue: queueNorth.filter((q) => q.id !== e.id) });
-                                      updateDoc(southRef, { queue: [...queueSouth, { ...e, joinedAt: Date.now() }] });
+                                      void transferRegionTx("North", "South", (from, to) => ({
+                                        from: { queue: from.queue.filter((q) => q.id !== e.id) },
+                                        to: { queue: [...to.queue, { ...e, joinedAt: Date.now() }] },
+                                      }));
                                     }}
                                     className="text-xs text-white bg-purple-600 hover:bg-purple-500 rounded-full px-3 py-1"
                                   >
@@ -1511,8 +1558,9 @@ const ListCard = ({
                                   <button
                                     onClick={(ev) => {
                                       ev.stopPropagation();
-                                      const ref = doc(db, "stores", storeId, "regions", "North");
-                                      updateDoc(ref, { queue: queueNorth.filter((q) => q.id !== e.id) });
+                                      void updateRegionTx("North", (current) => ({
+                                        queue: current.queue.filter((q) => q.id !== e.id),
+                                      }));
                                     }}
                                     className="text-xs text-white bg-red-600 hover:bg-red-500 rounded-full px-3 py-1"
                                   >
@@ -1577,15 +1625,15 @@ const ListCard = ({
                                 {e.note ? <div className="text-xs text-slate-400 italic truncate">{e.note}</div> : null}
                                 <div className="text-[11px] text-slate-400">{e.joinedAt ? `Joined ${fmtTime(e.joinedAt)}` : ""}</div>
                               </div>
-                              {isAdminOrOwner && (
+                              {isManagerLike && (
                                 <div className="flex gap-2 ml-2">
                                   <button
                                     onClick={(ev) => {
                                       ev.stopPropagation();
-                                      const northRef = doc(db, "stores", storeId, "regions", "North");
-                                      const southRef = doc(db, "stores", storeId, "regions", "South");
-                                      updateDoc(southRef, { queue: queueSouth.filter((q) => q.id !== e.id) });
-                                      updateDoc(northRef, { queue: [...queueNorth, { ...e, joinedAt: Date.now() }] });
+                                      void transferRegionTx("South", "North", (from, to) => ({
+                                        from: { queue: from.queue.filter((q) => q.id !== e.id) },
+                                        to: { queue: [...to.queue, { ...e, joinedAt: Date.now() }] },
+                                      }));
                                     }}
                                     className="text-xs text-white bg-blue-600 hover:bg-blue-500 rounded-full px-3 py-1"
                                   >
@@ -1604,8 +1652,9 @@ const ListCard = ({
                                   <button
                                     onClick={(ev) => {
                                       ev.stopPropagation();
-                                      const ref = doc(db, "stores", storeId, "regions", "South");
-                                      updateDoc(ref, { queue: queueSouth.filter((q) => q.id !== e.id) });
+                                      void updateRegionTx("South", (current) => ({
+                                        queue: current.queue.filter((q) => q.id !== e.id),
+                                      }));
                                     }}
                                     className="text-xs text-white bg-red-600 hover:bg-red-500 rounded-full px-3 py-1"
                                   >
@@ -1666,7 +1715,7 @@ const ListCard = ({
                             {e.note ? <div className="text-xs text-slate-400 italic truncate">{e.note}</div> : null}
                             <div className="text-[11px] text-slate-400">{e.joinedAt ? `Joined ${fmtTime(e.joinedAt)}` : ""}</div>
                           </div>
-                          {isAdminOrOwner && (
+                          {isManagerLike && (
                             <div className="flex gap-2 ml-2">
                               <button
                                 onClick={(ev) => {
@@ -1681,8 +1730,9 @@ const ListCard = ({
                               <button
                                 onClick={(ev) => {
                                   ev.stopPropagation();
-                                  const ref = doc(db, "stores", storeId, "regions", region);
-                                  updateDoc(ref, { queue: queue.filter((q) => q.id !== e.id) });
+                                  void updateRegionTx(region, (current) => ({
+                                    queue: current.queue.filter((q) => q.id !== e.id),
+                                  }));
                                 }}
                                 className="text-xs text-white bg-red-600 hover:bg-red-500 rounded-full px-3 py-1"
                               >
