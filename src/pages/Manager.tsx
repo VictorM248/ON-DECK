@@ -239,6 +239,19 @@ const [newUserError, setNewUserError] = useState("");
 // With Customers completion flow state
 const [mgrCompleteEntryId, setMgrCompleteEntryId] = useState<string | null>(null);
 const [mgrReturnPosition, setMgrReturnPosition] = useState<"top" | "bottom">("bottom");
+
+// Auto-correct an orphaned "top" selection once that option becomes
+// unavailable (2-minute window passed, or lockQueuePosition turned on)
+// while the modal is still open.
+useEffect(() => {
+  if (!mgrCompleteEntryId) return;
+  const entry = active.find((a) => a.id === mgrCompleteEntryId);
+  if (!entry) return;
+  const canSendTop = entry.serviceStart ? now - entry.serviceStart < 2 * 60 * 1000 : true;
+  if (mgrReturnPosition === "top" && (!canSendTop || settings.lockQueuePosition)) {
+    setMgrReturnPosition("bottom");
+  }
+}, [now, mgrCompleteEntryId, active, settings.lockQueuePosition, mgrReturnPosition]);
 const [mgrEarlyReasonModalOpen, setMgrEarlyReasonModalOpen] = useState(false);
 const [mgrEarlyReason, setMgrEarlyReason] = useState<"service" | "parts" | "finance" | "other" | null>(null);
 const [mgrOutcomeModalOpen, setMgrOutcomeModalOpen] = useState(false);
