@@ -75,6 +75,7 @@ export default function Queue({
     return () => window.clearInterval(id);
   }, []);
 
+  
   useEffect(() => {
     if (!settings.queueRotation) return;
     if (!settings.rotationStartedAt) return;
@@ -104,7 +105,20 @@ export default function Queue({
   // manager selection
   const [selectedManagerIds, setSelectedManagerIds] = useState<string[]>([]);
 
-  const [returnPosition, setReturnPosition] = useState<"top" | "bottom">("bottom");
+    const [returnPosition, setReturnPosition] = useState<"top" | "bottom">("bottom");
+
+  // Auto-correct an orphaned "top" selection once that option becomes
+  // unavailable (2-minute window passed, or lockQueuePosition turned on)
+  // while the modal is still open.
+  useEffect(() => {
+    if (!completeEntryId) return;
+    const entry = active.find((a) => a.id === completeEntryId);
+    if (!entry) return;
+    const canSendTop = entry.serviceStart ? now - entry.serviceStart < 2 * 60 * 1000 : true;
+    if (returnPosition === "top" && (!canSendTop || settings.lockQueuePosition)) {
+      setReturnPosition("bottom");
+    }
+  }, [now, completeEntryId, active, settings.lockQueuePosition, returnPosition]);
   const [outcomeModalOpen, setOutcomeModalOpen] = useState(false);
   const [visitOutcome, setVisitOutcome] = useState<VisitOutcome>({});
   const [, setPendingCompleteEntry] = useState<string | null>(null);
