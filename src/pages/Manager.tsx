@@ -439,27 +439,16 @@ const [mgrStartRegion, setMgrStartRegion] = useState<string>("");
     setMgrSelectedManagerIds([]);
   };
 
-  const reorderQueue = useCallback(async (fromIndex: number, toIndex: number) => {
+    const reorderQueue = useCallback(async (regionName: string, fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex) return;
-    const northRef = doc(db, "stores", storeId, "regions", "North");
-    const southRef = doc(db, "stores", storeId, "regions", "South");
-    const targetRef = doc(db, "stores", storeId, "regions", region);
-
-    await runTransaction(db, async (tx) => {
-      const [northSnap, southSnap] = await Promise.all([tx.get(northRef), tx.get(southRef)]);
-      const northData = (northSnap.exists() ? (northSnap.data() as RegionDoc) : emptyRegionDoc);
-      const southData = (southSnap.exists() ? (southSnap.data() as RegionDoc) : emptyRegionDoc);
-      const combinedQueue: Entry[] = [...(northData.queue ?? []), ...(southData.queue ?? [])];
-
-      const newQueue = [...combinedQueue];
+    await updateRegionTx(regionName, (current) => {
+      const newQueue = [...current.queue];
       const [moved] = newQueue.splice(fromIndex, 1);
-      if (moved === undefined) return;
+      if (moved === undefined) return {};
       newQueue.splice(toIndex, 0, moved);
-
-      const targetData = region === "North" ? northData : southData;
-      tx.set(targetRef, { ...targetData, queue: newQueue });
+      return { queue: newQueue };
     });
-  }, [storeId, region]);
+  }, [updateRegionTx]);
 
   const fetchEntriesForMonth = useCallback(async (monthKey: string, currentMonth: string) => {
     if (monthKey === currentMonth) {
@@ -1513,7 +1502,7 @@ const ListCard = ({
                               onDragStart={() => setDragIndex(idx)}
                               onDragOver={(ev) => { ev.preventDefault(); setDragOverIndex(idx); }}
                               onDrop={() => {
-                                if (dragIndex !== null) reorderQueue(dragIndex, idx);
+                                if (dragIndex !== null) reorderQueue("North", dragIndex, idx);
                                 setDragIndex(null);
                                 setDragOverIndex(null);
                               }}
@@ -1602,14 +1591,8 @@ const ListCard = ({
                               draggable
                               onDragStart={() => setDragIndex(idx)}
                               onDragOver={(ev) => { ev.preventDefault(); setDragOverIndex(idx); }}
-                              onDrop={() => {
-                                if (dragIndex !== null) {
-                                  const newQueue = [...queueSouth];
-                                  const [moved] = newQueue.splice(dragIndex, 1);
-                                  newQueue.splice(idx, 0, moved);
-                                  const ref = doc(db, "stores", storeId, "regions", "South");
-                                  updateDoc(ref, { queue: newQueue });
-                                }
+                                                            onDrop={() => {
+                                if (dragIndex !== null) reorderQueue("South", dragIndex, idx);
                                 setDragIndex(null);
                                 setDragOverIndex(null);
                               }}
@@ -1699,7 +1682,7 @@ const ListCard = ({
                           onDragStart={() => setDragIndex(idx)}
                           onDragOver={(ev) => { ev.preventDefault(); setDragOverIndex(idx); }}
                           onDrop={() => {
-                            if (dragIndex !== null) reorderQueue(dragIndex, idx);
+                            if (dragIndex !== null) reorderQueue(region, dragIndex, idx);
                             setDragIndex(null);
                             setDragOverIndex(null);
                           }}
