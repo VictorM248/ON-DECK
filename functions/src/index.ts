@@ -233,3 +233,64 @@ export const archiveCompletedEntries = onSchedule(
     }
   }
 );
+
+// Cloud Function 5: auto-complete "With Customer" entries stuck for 6+ hours
+export const autoCompleteStaleActive = onSchedule(
+  {
+    schedule: "every 30 minutes",
+    timeZone: "America/Los_Angeles",
+  },
+  async () => {
+    const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+    const now = Date.now();
+
+    const stores = ["store-toyota", "store-subaru", "store-hyundai"];
+    const regions = ["North", "South"];
+
+    for (const storeId of stores) {
+      for (const region of regions) {
+        const regionRef = admin.firestore()
+          .doc(`stores/${storeId}/regions/${region}`);
+        const snap = await regionRef.get();
+        if (!snap.exists) continue;
+
+        const data = snap.data() ?? {};
+        const active: any[] = data.active ?? [];
+        const completed: any[] = data.completed ?? [];
+
+        const stillActive: any[] = [];
+        const autoCompleted: any[] = [];
+
+        for (const entry of active) {
+          const start = entry.serviceStart;
+          const isStale = typeof start === "number" && (now - start) >= SIX_HOURS_MS;
+
+          if (!isStale) {
+            stillActive.push(entry);
+            continue;
+          }
+
+          const durationSec = start ? Math.max(0, Math.round((now - start) / 1000)) : undefined;
+
+          autoCompleted.push({
+            ...entry,
+            serviceEnd: now,
+            ...(durationSec !== undefined ? { durationSec } : {}),
+            autoCompleted: true,
+          });
+        }
+
+        if (autoCompleted.length === 0) continue;
+
+        await regionRef.update({
+          active: stillActive,
+          completed: [...completed, ...autoCompleted],
+        });
+
+        console.log(
+          `Auto-completed ${autoCompleted.length} stale active entr${autoCompleted.length === 1 ? "y" : "ies"} for ${storeId}/${region}`
+        );
+      }
+    }
+  }
+);
