@@ -7,18 +7,20 @@ export type StoreSettings = {
   lockQueuePosition: boolean;
   rotationStartedAt?: number;
   showNewUsed?: boolean;
-  splitRegionView?: boolean;
+    splitRegionView?: boolean;
   northSouthTransfer?: boolean;
   regionSwitching?: boolean;
+  addToQueueEnabled?: boolean;
 };
 
 const defaults: StoreSettings = {
   queueRotation: false,
   lockQueuePosition: false,
   rotationStartedAt: undefined,
-  splitRegionView: false,
+    splitRegionView: false,
   northSouthTransfer: false,
   regionSwitching: false,
+  addToQueueEnabled: false,
 };
 
 export function useStoreSettings(storeId: string) {

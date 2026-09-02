@@ -1215,14 +1215,60 @@ const ListCard = ({
       className="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl"
       onClick={(e) => e.stopPropagation()}
     >
-      <h2 className="text-lg font-semibold text-slate-100 mb-4">Add to Queue</h2>
-      <p className="text-xs text-slate-400 mb-3">Select a salesman to add to North or South queue.</p>
+            <h2 className="text-lg font-semibold text-slate-100 mb-4">Add to Queue</h2>
+      <p className="text-xs text-slate-400 mb-3">
+        {settings.splitRegionView
+          ? "Select a salesman to add to North or South queue."
+          : "Tap a salesman to add them to the queue."}
+      </p>
       <div className="flex flex-col gap-2 max-h-80 overflow-y-auto">
-        {assignedUsers.filter((u) => u.role === "sales" || u.role === "manager").map((u) => {
+                {assignedUsers.filter((u) => u.role === "sales" || u.role === "manager").map((u) => {
           const initials = (u.displayName?.[0] ?? "?").toUpperCase();
           const alreadyNorth = queueNorth.some((q) => q.email === u.email) || (dataNorth.active ?? []).some((q) => (q as Entry).email === u.email);
           const alreadySouth = queueSouth.some((q) => q.email === u.email) || (dataSouth.active ?? []).some((q) => (q as Entry).email === u.email);
           const alreadyEither = alreadyNorth || alreadySouth;
+
+          const addToRegion = async (regionName: "North" | "South") => {
+            await updateRegionTx(regionName, (current) => {
+              const exists =
+                current.queue.some((q) => q.email === u.email) ||
+                current.active.some((q) => q.email === u.email);
+              if (exists) return {};
+              const newEntry = {
+                id: crypto.randomUUID(),
+                firstName: u.displayName.split(" ")[0] ?? u.displayName,
+                lastName: u.displayName.split(" ").slice(1).join(" ") ?? "",
+                email: u.email,
+                note: "",
+                joinedAt: Date.now(),
+              };
+              return { queue: [...current.queue, newEntry] };
+            });
+          };
+
+          if (!settings.splitRegionView) {
+            return (
+              <button
+                key={u.uid}
+                type="button"
+                onClick={() => !alreadyEither && addToRegion(region as "North" | "South")}
+                disabled={alreadyEither}
+                className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-left hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-slate-800"
+              >
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-700 text-white text-xs font-semibold shrink-0">
+                  {initials}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-slate-100 truncate">{u.displayName}</div>
+                  <div className="text-xs text-slate-400 truncate">{u.email}</div>
+                </div>
+                {alreadyEither && (
+                  <span className="text-xs text-slate-400 shrink-0">Already in queue</span>
+                )}
+              </button>
+            );
+          }
+
           return (
             <div key={u.uid} className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-700 text-white text-xs font-semibold shrink-0">
@@ -1234,46 +1280,14 @@ const ListCard = ({
               </div>
               <div className="flex gap-2 shrink-0">
                 <button
-                  onClick={async () => {
-                    await updateRegionTx("North", (current) => {
-                      const exists =
-                        current.queue.some((q) => q.email === u.email) ||
-                        current.active.some((q) => q.email === u.email);
-                      if (exists) return {};
-                      const newEntry = {
-                        id: crypto.randomUUID(),
-                        firstName: u.displayName.split(" ")[0] ?? u.displayName,
-                        lastName: u.displayName.split(" ").slice(1).join(" ") ?? "",
-                        email: u.email,
-                        note: "",
-                        joinedAt: Date.now(),
-                      };
-                      return { queue: [...current.queue, newEntry] };
-                    });
-                  }}
+                  onClick={() => addToRegion("North")}
                   disabled={alreadyEither}
                   className="text-xs text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-full px-3 py-1"
                 >
                   {alreadyNorth ? "In North" : alreadySouth ? "In South" : "+ North"}
                 </button>
                 <button
-                  onClick={async () => {
-                    await updateRegionTx("South", (current) => {
-                      const exists =
-                        current.queue.some((q) => q.email === u.email) ||
-                        current.active.some((q) => q.email === u.email);
-                      if (exists) return {};
-                      const newEntry = {
-                        id: crypto.randomUUID(),
-                        firstName: u.displayName.split(" ")[0] ?? u.displayName,
-                        lastName: u.displayName.split(" ").slice(1).join(" ") ?? "",
-                        email: u.email,
-                        note: "",
-                        joinedAt: Date.now(),
-                      };
-                      return { queue: [...current.queue, newEntry] };
-                    });
-                  }}
+                  onClick={() => addToRegion("South")}
                   disabled={alreadyEither}
                   className="text-xs text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-full px-3 py-1"
                 >
@@ -1472,19 +1486,19 @@ const ListCard = ({
               </div>
 
               {/* Panels */}
-              {panel === "queue" && (
-                settings.splitRegionView ? (
-                  <div className="flex flex-col gap-4">
-                  {isManagerLike && (
-                    <div className="flex justify-start">
-                      <button
-                        onClick={() => setAddToQueueModalOpen(true)}
-                        className="text-xs text-blue-600 hover:text-blue-800 border border-blue-300 bg-white rounded-lg px-3 py-1.5 font-medium"
-                      >
-                        + Add to Queue
-                      </button>
-                    </div>
-                  )}
+                            {panel === "queue" && (
+                <div className="flex flex-col gap-4">
+                {isManagerLike && settings.addToQueueEnabled && (
+                  <div className="flex justify-start">
+                    <button
+                      onClick={() => setAddToQueueModalOpen(true)}
+                      className="text-xs text-blue-600 hover:text-blue-800 border border-blue-300 bg-white rounded-lg px-3 py-1.5 font-medium"
+                    >
+                      + Add to Queue
+                    </button>
+                  </div>
+                )}
+                {settings.splitRegionView ? (
                   <div className="grid grid-cols-2 gap-4">
                     {/* NORTH QUEUE */}
                     <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
@@ -1664,7 +1678,6 @@ const ListCard = ({
                       </div>
                     </div>
                   </div>
-                  </div>
                 ) : (
                 <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
                   <div className="px-4 py-3 border-b border-slate-200 font-bold text-slate-700 flex items-center justify-between border-l-4 border-l-blue-500">
@@ -1740,8 +1753,9 @@ const ListCard = ({
                       ))
                     )}
                   </div>
+                  </div>
+                )}
                 </div>
-                )
               )}
 
               {panel === "active" && (
@@ -2020,7 +2034,7 @@ const ListCard = ({
                       </button>
                     </div>
 
-                    {/* Lock Queue Position */}
+                                        {/* Lock Queue Position */}
                     <div className="px-4 py-4 flex items-center justify-between">
                       <div>
                         <div className="text-sm font-semibold text-slate-800">Lock Queue Position</div>
@@ -2034,6 +2048,24 @@ const ListCard = ({
                       >
                         <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                           settings.lockQueuePosition ? "translate-x-6" : "translate-x-1"
+                        }`} />
+                      </button>
+                    </div>
+
+                    {/* Add to Queue Button */}
+                    <div className="px-4 py-4 flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-800">Add to Queue Button</div>
+                        <div className="text-xs text-slate-400 mt-0.5">Let managers add salesmen directly to the queue from this dashboard</div>
+                      </div>
+                      <button
+                        onClick={() => updateSetting("addToQueueEnabled", !settings.addToQueueEnabled)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          settings.addToQueueEnabled ? "bg-blue-600" : "bg-slate-200"
+                        }`}
+                      >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          settings.addToQueueEnabled ? "translate-x-6" : "translate-x-1"
                         }`} />
                       </button>
                     </div>
