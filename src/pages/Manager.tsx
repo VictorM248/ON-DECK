@@ -2150,6 +2150,8 @@ const ListCard = ({
                         : 0;
                       const avgMins = Math.floor(avgDuration / 60);
                       const avgSecs = avgDuration % 60;
+                      const pct = (n: number) =>
+                        person.visits > 0 ? `${((n / person.visits) * 100).toFixed(1)}% of visits` : "—";
                       return (
                         <div className="p-4">
                           <button
@@ -2162,20 +2164,23 @@ const ListCard = ({
                           <div className="text-xs text-slate-400 mb-4">{person.email}</div>
                           <div className="grid grid-cols-3 gap-3 mb-4">
                             {[
-                              { label: "Visits", value: person.visits, color: "bg-slate-50 border-slate-200" },
-                              { label: "Sold", value: person.sold, color: "bg-green-50 border-green-200" },
-                              { label: "Deposits", value: person.deposit, color: "bg-blue-50 border-blue-200" },
-                              { label: "Test Drives", value: person.testDrive, color: "bg-amber-50 border-amber-200" },
-                              { label: "Proposals", value: person.proposal, color: "bg-purple-50 border-purple-200" },
-                              { label: "Avg Duration", value: person.durationCount > 0 ? `${avgMins}m ${String(avgSecs).padStart(2,"0")}s` : "—", color: "bg-slate-50 border-slate-200" },
+                              { label: "Visits", value: person.visits, color: "bg-slate-50 border-slate-200", percent: "" },
+                              { label: "Sold", value: person.sold, color: "bg-green-50 border-green-200", percent: pct(person.sold) },
+                              { label: "Deposits", value: person.deposit, color: "bg-blue-50 border-blue-200", percent: pct(person.deposit) },
+                              { label: "Test Drives", value: person.testDrive, color: "bg-amber-50 border-amber-200", percent: pct(person.testDrive) },
+                              { label: "Proposals", value: person.proposal, color: "bg-purple-50 border-purple-200", percent: pct(person.proposal) },
+                              { label: "Avg Duration", value: person.durationCount > 0 ? `${avgMins}m ${String(avgSecs).padStart(2,"0")}s` : "—", color: "bg-slate-50 border-slate-200", percent: "" },
                               ...(settings.showNewUsed ? [
-                                { label: "New", value: person.newVehicle, color: "bg-blue-50 border-blue-200" },
-                                { label: "Used", value: person.usedVehicle, color: "bg-slate-50 border-slate-200" },
+                                { label: "New", value: person.newVehicle, color: "bg-blue-50 border-blue-200", percent: pct(person.newVehicle) },
+                                { label: "Used", value: person.usedVehicle, color: "bg-slate-50 border-slate-200", percent: pct(person.usedVehicle) },
                               ] : []),
                             ].map((stat) => (
                               <div key={stat.label} className={`rounded-xl border px-3 py-3 ${stat.color}`}>
                                 <div className="text-xs font-bold text-slate-400 uppercase tracking-wide">{stat.label}</div>
                                 <div className="text-2xl font-black text-slate-700 mt-0.5">{stat.value}</div>
+                                {stat.percent ? (
+                                  <div className="text-xs font-semibold text-slate-400 mt-0.5">{stat.percent}</div>
+                                ) : null}
                               </div>
                             ))}
                           </div>
