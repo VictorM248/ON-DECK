@@ -687,7 +687,7 @@ const [mgrStartRegion, setMgrStartRegion] = useState<string>("");
     return target.storeId === "";
   }
 
-  const analyticsBySalesperson = useMemo(() => {
+    const analyticsBySalesperson = useMemo(() => {
     const map = new Map<string, {
       name: string;
       email: string;
@@ -698,6 +698,9 @@ const [mgrStartRegion, setMgrStartRegion] = useState<string>("");
       deposit: number;
       newVehicle: number;
       usedVehicle: number;
+      walkIn: number;
+      apptPhone: number;
+      apptOnline: number;
       totalDuration: number;
       durationCount: number;
     }>();
@@ -706,7 +709,7 @@ const [mgrStartRegion, setMgrStartRegion] = useState<string>("");
       const email = e.email?.toLowerCase() ?? "unknown";
       const name = `${e.firstName} ${e.lastName}`.trim();
       if (!map.has(email)) {
-        map.set(email, { name, email, visits: 0, testDrive: 0, proposal: 0, sold: 0, deposit: 0, newVehicle: 0, usedVehicle: 0, totalDuration: 0, durationCount: 0 });
+        map.set(email, { name, email, visits: 0, testDrive: 0, proposal: 0, sold: 0, deposit: 0, newVehicle: 0, usedVehicle: 0, walkIn: 0, apptPhone: 0, apptOnline: 0, totalDuration: 0, durationCount: 0 });
       }
       const s = map.get(email)!;
       s.visits++;
@@ -716,6 +719,10 @@ const [mgrStartRegion, setMgrStartRegion] = useState<string>("");
       if (e.visitOutcome?.deposit) s.deposit++;
       if (e.visitOutcome?.vehicleType === "new") s.newVehicle++;
       if (e.visitOutcome?.vehicleType === "used") s.usedVehicle++;
+      const jt = e.joinType === ("appointment" as any) ? "appt-phone" : e.joinType;
+      if (jt === "walk-in") s.walkIn++;
+      else if (jt === "appt-phone") s.apptPhone++;
+      else if (jt === "appt-online") s.apptOnline++;
       if (e.durationSec) { s.totalDuration += e.durationSec; s.durationCount++; }
     }
 
@@ -2152,6 +2159,8 @@ const ListCard = ({
                       const avgSecs = avgDuration % 60;
                       const pct = (n: number) =>
                         person.visits > 0 ? `${((n / person.visits) * 100).toFixed(1)}% of visits` : "—";
+                      const shortPct = (n: number) =>
+                        person.visits > 0 ? `${((n / person.visits) * 100).toFixed(0)}%` : "—";
                       return (
                         <div className="p-4">
                           <button
@@ -2175,7 +2184,7 @@ const ListCard = ({
                                 { label: "Used", value: person.usedVehicle, color: "bg-slate-50 border-slate-200", percent: pct(person.usedVehicle) },
                               ] : []),
                             ].map((stat) => (
-                              <div key={stat.label} className={`rounded-xl border px-3 py-3 ${stat.color}`}>
+                                                            <div key={stat.label} className={`rounded-xl border px-3 py-3 ${stat.color}`}>
                                 <div className="text-xs font-bold text-slate-400 uppercase tracking-wide">{stat.label}</div>
                                 <div className="text-2xl font-black text-slate-700 mt-0.5">{stat.value}</div>
                                 {stat.percent ? (
@@ -2183,6 +2192,35 @@ const ListCard = ({
                                 ) : null}
                               </div>
                             ))}
+                            <div className="rounded-xl border px-3 py-3 bg-slate-50 border-slate-200">
+                              <div className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1.5">Join Type</div>
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                                    <DoorOpen size={12} /> Walk-in
+                                  </span>
+                                  <span className="text-xs font-bold text-slate-700">
+                                    {person.walkIn} <span className="font-normal text-slate-400">({shortPct(person.walkIn)})</span>
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                                    <Phone size={12} /> Phone
+                                  </span>
+                                  <span className="text-xs font-bold text-slate-700">
+                                    {person.apptPhone} <span className="font-normal text-slate-400">({shortPct(person.apptPhone)})</span>
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                                    <Globe size={12} /> Online
+                                  </span>
+                                  <span className="text-xs font-bold text-slate-700">
+                                    {person.apptOnline} <span className="font-normal text-slate-400">({shortPct(person.apptOnline)})</span>
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       );
