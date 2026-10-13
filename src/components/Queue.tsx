@@ -399,8 +399,14 @@ export default function Queue({
       const thisData = (thisSnap.exists() ? thisSnap.data() : emptyLists) as typeof emptyLists;
       const otherData = (otherSnap.exists() ? otherSnap.data() : emptyLists) as typeof emptyLists;
 
+      const em = email.toLowerCase();
+      const alreadyHere =
+        (thisData.queue ?? []).some((e) => e.email.toLowerCase() === em) ||
+        (thisData.active ?? []).some((e) => e.email.toLowerCase() === em);
+      if (alreadyHere) return;
+
       const nextOtherQueue = (otherData.queue ?? []).filter(
-        (e) => e.email.toLowerCase() !== email.toLowerCase()
+        (e) => e.email.toLowerCase() !== em
       );
       const nextThisQueue = [
         ...(thisData.queue ?? []),

@@ -1558,10 +1558,13 @@ const ListCard = ({
                                   <button
                                     onClick={(ev) => {
                                       ev.stopPropagation();
-                                      void transferRegionTx("North", "South", (from, to) => ({
-                                        from: { queue: from.queue.filter((q) => q.id !== e.id) },
-                                        to: { queue: [...to.queue, { ...e, joinedAt: Date.now() }] },
-                                      }));
+                                      void transferRegionTx("North", "South", (from, to) => {
+                                        if (!from.queue.some((q) => q.id === e.id)) return { from: {}, to: {} };
+                                        return {
+                                          from: { queue: from.queue.filter((q) => q.id !== e.id) },
+                                          to: { queue: [...to.queue, { ...e, joinedAt: Date.now() }] },
+                                        };
+                                      });
                                     }}
                                     className="text-xs text-white bg-purple-600 hover:bg-purple-500 rounded-full px-3 py-1"
                                   >
@@ -1647,10 +1650,13 @@ const ListCard = ({
                                   <button
                                     onClick={(ev) => {
                                       ev.stopPropagation();
-                                      void transferRegionTx("South", "North", (from, to) => ({
-                                        from: { queue: from.queue.filter((q) => q.id !== e.id) },
-                                        to: { queue: [...to.queue, { ...e, joinedAt: Date.now() }] },
-                                      }));
+                                      void transferRegionTx("South", "North", (from, to) => {
+                                        if (!from.queue.some((q) => q.id === e.id)) return { from: {}, to: {} };
+                                        return {
+                                          from: { queue: from.queue.filter((q) => q.id !== e.id) },
+                                          to: { queue: [...to.queue, { ...e, joinedAt: Date.now() }] },
+                                        };
+                                      });
                                     }}
                                     className="text-xs text-white bg-blue-600 hover:bg-blue-500 rounded-full px-3 py-1"
                                   >
